@@ -28,6 +28,14 @@ const STATE_FILE  = PATHS.STATE_FILE;
 const DRY_RUN = process.argv.includes("--dry-run");       // Shows what would happen without changing the playlist
 const PODCAST_ONLY = process.argv.includes("--podcast-only"); // Hourly mode: only refresh podcasts, reuse saved music
 
+// ---------------------------------------------------------------------------
+// Logger — defaults to console, can be overridden by server.js via setLogger()
+// ---------------------------------------------------------------------------
+let log    = (...a) => console.log(...a);
+let logErr = (...a) => console.error(...a);
+
+function setLogger(fn) { log = fn; logErr = fn; }
+
 // =============================================================================
 // Helper Functions
 // =============================================================================
@@ -43,7 +51,7 @@ function loadConfig() {
     config = yaml.load(fs.readFileSync(CONFIG_FILE, "utf8")) || {};
   } else if (!process.env.SPOTIFY_CLIENT_ID) {
     const msg = "config.yaml not found and SPOTIFY_CLIENT_ID env var is not set.";
-    console.error("❌ " + msg);
+    logErr("❌ " + msg);
     if (require.main === module) process.exit(1);
     throw new Error(msg);
   }
@@ -61,7 +69,7 @@ function loadToken() {
   const token = tokenManager.loadToken();
   if (!token) {
     const msg = "Not authenticated — please re-authorize via the web UI.";
-    console.error("❌ " + msg);
+    logErr("❌ " + msg);
     if (require.main === module) process.exit(1);
     throw new Error(msg);
   }
@@ -137,7 +145,7 @@ async function fetchPodcastEpisodes(spotifyApi, podcasts) {
   for (const podcast of podcasts) {
     // How many recent episodes to grab (default: 1, configurable per podcast)
     const count = podcast.episodes || 1;
-    console.log(`🎙️  Fetching ${count} episode(s) from: ${podcast.name}`);
+    log(`🎙️  Fetching ${count} episode(s) from: ${podcast.name}`);
 
     try {
       // Ask Spotify for the most recent episodes of this show
@@ -154,11 +162,11 @@ async function fetchPodcastEpisodes(spotifyApi, podcasts) {
           type: "episode",
           position: podcast.position || null, // "first" = pinned to top of playlist
         });
-        console.log(`    📌 ${episode.name}`);
+        log(`    📌 ${episode.name}`);
       }
     } catch (err) {
       // Don't crash if one podcast fails — just warn and continue with the rest
-      console.error(`    ⚠️  Failed to fetch ${podcast.name}: ${err.message}`);
+      logErr(`    ⚠️  Failed to fetch ${podcast.name}: ${err.message}`);
     }
   }
 
@@ -181,7 +189,7 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
       // Skip placeholder entries from the example config
       if (!playlist.id || playlist.id === "your-playlist-id") continue;
 
-      console.log(`🎵 Fetching songs from playlist: ${playlist.name}`);
+      log(`🎵 Fetching songs from playlist: ${playlist.name}`);
 
       try {
         // Spotify returns max 100 items per request, so we paginate through
@@ -224,11 +232,11 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
           hasMore = offset < data.total;
         }
 
-        console.log(
+        log(
           `    Found ${allTracks.length} tracks so far`
         );
       } catch (err) {
-        console.error(
+        logErr(
           `    ⚠️  Failed to fetch playlist ${playlist.name}: ${err.message}`
         );
       }
@@ -238,7 +246,7 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
   // --- Source 2: Pull from user's liked/saved songs ---
   if (musicConfig.saved_tracks && musicConfig.saved_tracks.enabled) {
     const count = musicConfig.saved_tracks.count || 50;
-    console.log(`🎵 Fetching saved/liked tracks (up to ${count})...`);
+    log(`🎵 Fetching saved/liked tracks (up to ${count})...`);
 
     try {
       let offset = 0;
@@ -267,9 +275,9 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
         remaining -= limit;
       }
 
-      console.log(`    Found ${allTracks.length} tracks from saved songs`);
+      log(`    Found ${allTracks.length} tracks from saved songs`);
     } catch (err) {
-      console.error(`    ⚠️  Failed to fetch saved tracks: ${err.message}`);
+      logErr(`    ⚠️  Failed to fetch saved tracks: ${err.message}`);
     }
   }
 
@@ -281,7 +289,7 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
     //   "long_term"   = all time
     const timeRange = musicConfig.top_tracks.time_range || "short_term";
     const count = musicConfig.top_tracks.count || 30;
-    console.log(`🎵 Fetching top tracks (${timeRange})...`);
+    log(`🎵 Fetching top tracks (${timeRange})...`);
 
     try {
       let offset = 0;
@@ -307,9 +315,9 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
         remaining -= limit;
       }
 
-      console.log(`    Found ${allTracks.length} tracks from top tracks`);
+      log(`    Found ${allTracks.length} tracks from top tracks`);
     } catch (err) {
-      console.error(`    ⚠️  Failed to fetch top tracks: ${err.message}`);
+      logErr(`    ⚠️  Failed to fetch top tracks: ${err.message}`);
     }
   }
 
@@ -320,7 +328,7 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
   }
   allTracks = allTracks.slice(0, totalSongs);
 
-  console.log(`🎵 Selected ${allTracks.length} songs`);
+  log(`🎵 Selected ${allTracks.length} songs`);
   return allTracks;
 }
 
@@ -337,7 +345,7 @@ async function fetchGenreTracks(spotifyApi, genres, count) {
   const perGenre = Math.ceil(count / genres.length);
 
   for (const genre of genres) {
-    console.log(`🎵 Searching for ${genre} tracks...`);
+    log(`🎵 Searching for ${genre} tracks...`);
     try {
       // Use Spotify's search with a "genre:" filter
       const data = await spotifyApi.searchTracks(`genre:${genre}`, {
@@ -353,9 +361,9 @@ async function fetchGenreTracks(spotifyApi, genres, count) {
           type: "track",
         });
       }
-      console.log(`    Found ${data.body.tracks.items.length} tracks`);
+      log(`    Found ${data.body.tracks.items.length} tracks`);
     } catch (err) {
-      console.error(`    ⚠️  Failed to search genre ${genre}: ${err.message}`);
+      logErr(`    ⚠️  Failed to search genre ${genre}: ${err.message}`);
     }
   }
 
@@ -460,16 +468,16 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
 
   // In dry-run mode, just print what would happen and return
   if (DRY_RUN) {
-    console.log("\n🧪 DRY RUN — would update playlist with:\n");
+    log("\n🧪 DRY RUN — would update playlist with:\n");
     items.forEach((item, i) => {
       const icon = item.type === "episode" ? "🎙️ " : "🎵";
       const detail =
         item.type === "episode"
           ? `[${item.show}] ${item.name}`
           : `${item.name} — ${item.artist}`;
-      console.log(`  ${String(i + 1).padStart(2)}. ${icon} ${detail}`);
+      log(`  ${String(i + 1).padStart(2)}. ${icon} ${detail}`);
     });
-    console.log(`\n✅ Dry run complete. ${items.length} items would be added.\n`);
+    log(`\n✅ Dry run complete. ${items.length} items would be added.\n`);
     return;
   }
 
@@ -501,9 +509,9 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
     }
   }
 
-  console.log(`\n✅ Playlist updated with ${items.length} items!`);
-  console.log(`   🎙️  ${items.filter((i) => i.type === "episode").length} podcast episodes`);
-  console.log(`   🎵 ${items.filter((i) => i.type === "track").length} songs\n`);
+  log(`\n✅ Playlist updated with ${items.length} items!`);
+  log(`   🎙️  ${items.filter((i) => i.type === "episode").length} podcast episodes`);
+  log(`   🎵 ${items.filter((i) => i.type === "track").length} songs\n`);
 }
 
 // =============================================================================
@@ -512,7 +520,7 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
 
 async function main() {
   const mode = PODCAST_ONLY ? "podcast-only" : "full";
-  console.log(`\n🚗 Daily Drive — ${PODCAST_ONLY ? "Hourly podcast refresh" : "Full playlist rebuild"}...\n`);
+  log(`\n🚗 Daily Drive — ${PODCAST_ONLY ? "Hourly podcast refresh" : "Full playlist rebuild"}...\n`);
 
   // Step 1: Load configuration and authentication token
   const config = loadConfig();
@@ -535,7 +543,7 @@ async function main() {
   // Step 4: Make sure the user has set a real playlist ID
   if (!config.playlist_id || config.playlist_id === "your-playlist-id-here") {
     const msg = "Please set your playlist_id in config.yaml";
-    console.error("❌ " + msg);
+    logErr("❌ " + msg);
     if (require.main === module) process.exit(1);
     throw new Error(msg);
   }
@@ -552,8 +560,8 @@ async function main() {
   // In podcast-only mode, skip if episodes haven't changed (no point reshuffling)
   // In full refresh mode, ALWAYS proceed — we want fresh music even if podcasts are the same
   if (!DRY_RUN && PODCAST_ONLY && currentEpisodeUris === previousEpisodeUris && episodes.length > 0) {
-    console.log("\n⏭️  No new podcast episodes detected. Playlist unchanged.");
-    console.log("   (Same episodes as last update — skipping to avoid disruption)\n");
+    log("\n⏭️  No new podcast episodes detected. Playlist unchanged.");
+    log("   (Same episodes as last update — skipping to avoid disruption)\n");
     return;
   }
 
@@ -566,11 +574,11 @@ async function main() {
     // This keeps your music stable all day while swapping in fresh podcast episodes.
     if (state.music_tracks && state.music_tracks.length > 0) {
       tracks = state.music_tracks;
-      console.log(`🎵 Reusing ${tracks.length} saved music tracks from last full refresh`);
+      log(`🎵 Reusing ${tracks.length} saved music tracks from last full refresh`);
     } else {
       // No saved music — fall back to a full music fetch
       // This happens on the very first run, or if state.json was deleted
-      console.log("⚠️  No saved music tracks found — falling back to full music fetch");
+      log("⚠️  No saved music tracks found — falling back to full music fetch");
       tracks = await fetchAllMusicTracks(spotifyApi, config);
     }
   } else {
@@ -581,7 +589,7 @@ async function main() {
 
   if (episodes.length === 0 && tracks.length === 0) {
     const msg = "No content found — check your config and Spotify authorisation.";
-    console.error("❌ " + msg);
+    logErr("❌ " + msg);
     if (require.main === module) process.exit(1);
     throw new Error(msg);
   }
@@ -600,12 +608,12 @@ async function main() {
 
   // Step 9: Optionally alternate episodes across podcasts (round-robin instead of sequential)
   if (config.podcast_alternate && mixableEpisodes.length > 0) {
-    console.log("🔄 Alternating podcast episodes across shows (round-robin)");
+    log("🔄 Alternating podcast episodes across shows (round-robin)");
     mixableEpisodes = alternateEpisodes(mixableEpisodes);
   }
 
   // Step 10: Mix podcasts and music according to the configured pattern
-  console.log(`\n🔀 Mixing with pattern: ${config.mix_pattern || "PMMM"}`);
+  log(`\n🔀 Mixing with pattern: ${config.mix_pattern || "PMMM"}`);
   const mixed = [...pinnedFirst, ...mixContent(mixableEpisodes, tracks, config.mix_pattern)];
 
   // Step 10: Push the final mixed playlist to Spotify
@@ -637,7 +645,7 @@ async function main() {
     }
 
     saveState(newState);
-    console.log("💾 State saved to state.json");
+    log("💾 State saved to state.json");
   }
 }
 
@@ -669,7 +677,7 @@ async function fetchAllMusicTracks(spotifyApi, config) {
     const familiarUris = new Set(tracks.map((t) => t.uri));
     const newGenreTracks = genreTracks.filter((t) => !familiarUris.has(t.uri));
     tracks = [...tracks, ...newGenreTracks.slice(0, discoveryCount)];
-    console.log(`🎵 Music mix: ${familiarCount} familiar + ${newGenreTracks.slice(0, discoveryCount).length} discovery = ${tracks.length} total`);
+    log(`🎵 Music mix: ${familiarCount} familiar + ${newGenreTracks.slice(0, discoveryCount).length} discovery = ${tracks.length} total`);
   }
 
   return tracks;
@@ -677,13 +685,13 @@ async function fetchAllMusicTracks(spotifyApi, config) {
 
 // Export main() so server.js can call it programmatically.
 // When this file is run directly (CLI), also execute main() immediately.
-module.exports = { main };
+module.exports = { main, setLogger };
 
 if (require.main === module) {
   main().catch((err) => {
-    console.error("\n❌ Error:", err.message);
+    logErr("\n❌ Error:", err.message);
     if (err.statusCode === 401) {
-      console.error("   Your token may have expired. Run: npm run setup\n");
+      logErr("   Your token may have expired. Run: npm run setup\n");
     }
     process.exit(1);
   });

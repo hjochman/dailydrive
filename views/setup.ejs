@@ -12,6 +12,33 @@
 
 <% } else { %>
 
+<%
+  let isLanHttp = false;
+  let loopbackRedirectUri = redirectUri;
+  try {
+    const u = new URL(redirectUri);
+    isLanHttp = u.protocol === 'http:' && u.hostname !== '127.0.0.1' && u.hostname !== 'localhost';
+    loopbackRedirectUri = `${u.protocol}//127.0.0.1${u.port ? ':' + u.port : ''}${u.pathname}`;
+  } catch (e) {}
+%>
+
+<% if (flash) { %>
+<div class="alert alert-<%= flash.type %>" style="margin-bottom:1.5rem">
+  <div><%= flash.message %></div>
+  <% if (flash.message && (flash.message.includes('EACCES') || flash.message.includes('permission denied'))) { %>
+  <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.15);font-size:0.85rem;line-height:1.5">
+    <strong style="display:block;margin-bottom:0.35rem" data-i18n="eacces_help_title">📁 Berechtigungsproblem auf der Synology NAS beheben:</strong>
+    <ol style="margin:0;padding-left:1.25rem">
+      <li data-i18n="eacces_help_step1">Öffne die <strong>File Station</strong> im Synology DSM.</li>
+      <li data-i18n="eacces_help_step2">Navigiere zum gemounteten Ordner (z. B. <code>docker/dailydrive/data</code>).</li>
+      <li data-i18n="eacces_help_step3">Rechtsklick auf den Ordner <code>data</code> → <strong>Eigenschaften</strong> → Reiter <strong>Berechtigung</strong>.</li>
+      <li data-i18n="eacces_help_step4">Stelle sicher, dass <strong>Everyone / Jeder</strong> Lese- und Schreibrechte besitzt (inkl. Haken bei <em>"Auf diesen Ordner, Unterordner und Dateien anwenden"</em>).</li>
+    </ol>
+  </div>
+  <% } %>
+</div>
+<% } %>
+
 <!-- ===== Step indicator ===== -->
 <div class="steps-indicator">
   <div class="step-pill <%= step >= 1 ? (step > 1 ? 'done' : 'active') : '' %>">1</div>
@@ -37,10 +64,21 @@
         <li data-i18n="setup_step1_hint3">Click <strong>"Create App"</strong>.</li>
         <li>
           <span data-i18n="setup_step1_hint4">Enter exactly this value as <strong>Redirect URI</strong>:</span>
-          <div class="redirect-uri-box" id="redirect-uri-display"><%= redirectUri %></div>
-          <p class="field-hint" data-i18n="setup_step1_hint4b" style="margin-top:.4rem">
-            ⚠️ Spotify only accepts <code>127.0.0.1</code> — <strong>not</strong> <code>localhost</code>.
-          </p>
+          <% if (isLanHttp) { %>
+            <div style="margin: 0.5rem 0; padding: 0.75rem; background: rgba(241, 194, 27, 0.1); border-left: 4px solid #f1c21b; border-radius: 4px; font-size: 0.85rem;">
+              <strong style="color: #f1c21b; display: block; margin-bottom: 0.25rem;" data-i18n="setup_nas_warning_title">⚠️ NAS / LAN HTTP Setup Detected</strong>
+              <span style="color: var(--text-muted);" data-i18n="setup_nas_warning_desc">Spotify requires HTTPS for LAN IP redirect URIs. Since you are accessing via HTTP IP, you must use the loopback address in Spotify.</span>
+            </div>
+            <div class="redirect-uri-box" id="redirect-uri-display"><%= loopbackRedirectUri %></div>
+            <p class="field-hint" data-i18n="setup_step1_hint_nas_loopback" style="margin-top:.4rem">
+              Use this loopback address in your Spotify Developer Dashboard instead of your NAS IP.
+            </p>
+          <% } else { %>
+            <div class="redirect-uri-box" id="redirect-uri-display"><%= redirectUri %></div>
+            <p class="field-hint" data-i18n="setup_step1_hint4b" style="margin-top:.4rem">
+              ⚠️ Spotify only accepts <code>127.0.0.1</code> — <strong>not</strong> <code>localhost</code>.
+            </p>
+          <% } %>
         </li>
         <li data-i18n="setup_step1_hint5">Check both <strong>Web API</strong> and <strong>Web Playback SDK</strong>.</li>
         <li data-i18n="setup_step1_hint6">Open <strong>Settings → User Management</strong> and add your Spotify email.</li>
@@ -59,7 +97,7 @@
         <div class="form-group">
           <label data-i18n="setup_step1_redirect">Redirect URI</label>
           <div class="copy-block">
-            <input type="text" value="<%= redirectUri %>" readonly id="redir-copy">
+            <input type="text" value="<%= isLanHttp ? loopbackRedirectUri : redirectUri %>" readonly id="redir-copy">
             <button type="button" class="btn-copy" onclick="copyRedirect()">Copy</button>
           </div>
           <p class="field-hint" data-i18n="setup_step1_redirect_hint">
@@ -80,12 +118,61 @@
         Now we'll connect Daily Drive to your Spotify account. You'll be briefly redirected to Spotify.
       </p>
 
-      <div class="btn-row">
-        <a href="/setup?step=1" class="btn btn-ghost" data-i18n="setup_step2_back">Back</a>
-        <a href="/setup/authorize" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
-          🎵 <span data-i18n="setup_step2_authorize">Authorize with Spotify</span>
-        </a>
-      </div>
+      <% if (isLanHttp) { %>
+        <!-- NAS Copy-Paste Flow UI -->
+        <div class="nas-flow-card" style="border: 1px solid var(--border); padding: 1.25rem; border-radius: 8px; background: rgba(15, 98, 254, 0.05); margin-bottom: 1.5rem;">
+          <h3 style="margin-top:0; font-size: 1rem; color: #0f62fe; display: flex; align-items: center; gap: 0.5rem;" data-i18n="setup_nas_mode_title">
+            🔗 Loopback Copy-Paste (NAS Mode)
+          </h3>
+          <p style="font-size: 0.85rem; line-height: 1.4; color: var(--text-muted); margin-bottom: 1rem;" data-i18n="setup_nas_mode_desc">
+            Since your NAS is accessed via HTTP, we will authorize using a loopback IP. Follow these steps:
+          </p>
+          <ol style="font-size: 0.85rem; color: var(--text); padding-left: 1.25rem; margin-bottom: 1.25rem; line-height: 1.5;">
+            <li>
+              <span data-i18n="setup_nas_step1">Ensure <code><%= loopbackRedirectUri %></code> is registered in Spotify.</span>
+            </li>
+            <li>
+              <span data-i18n="setup_nas_step2">Click the authorize button below. You will be redirected to Spotify.</span>
+            </li>
+            <li>
+              <span data-i18n="setup_nas_step3">After agreeing, your browser will land on a <strong>failed/blank page</strong> (e.g. <code>Site can't be reached</code>).</span>
+            </li>
+            <li>
+              <span data-i18n="setup_nas_step4"><strong>Copy the entire failed URL</strong> from your browser's address bar.</span>
+            </li>
+            <li>
+              <span data-i18n="setup_nas_step5">Return here and paste it below to complete the connection!</span>
+            </li>
+          </ol>
+
+          <div style="margin-bottom: 1.25rem;">
+            <a href="/setup/authorize?use_loopback=true" target="_blank" class="btn btn-spotify" style="font-size:0.9rem;padding:.5rem 1.25rem; display: inline-block;">
+              🎵 <span data-i18n="setup_nas_authorize_btn">Open Spotify Authorization</span>
+            </a>
+          </div>
+
+          <form action="/setup/callback-paste" method="POST" style="margin-top: 1rem;">
+            <div class="form-group" style="margin-bottom: 0.75rem;">
+              <label for="callback_url" style="font-size: 0.8rem; font-weight: 600;" data-i18n="setup_nas_input_label">Pasted Redirect URL</label>
+              <input type="text" id="callback_url" name="callback_url" required placeholder="http://127.0.0.1:<%= new URL(loopbackRedirectUri).port || '8080' %>/callback?code=..." style="width: 100%;">
+            </div>
+            <button type="submit" class="btn btn-primary" style="font-size: 0.85rem; padding: 0.5rem 1rem;" data-i18n="setup_nas_submit_btn">Complete Connection</button>
+          </form>
+        </div>
+      <% } else { %>
+        <div class="btn-row">
+          <a href="/setup?step=1" class="btn btn-ghost" data-i18n="setup_step2_back">Back</a>
+          <a href="/setup/authorize" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
+            🎵 <span data-i18n="setup_step2_authorize">Authorize with Spotify</span>
+          </a>
+        </div>
+      <% } %>
+
+      <% if (isLanHttp) { %>
+        <div class="btn-row" style="margin-top: 1rem; border-top: 1px solid var(--border); padding-top: 1rem;">
+          <a href="/setup?step=1" class="btn btn-ghost" data-i18n="setup_step2_back">Back</a>
+        </div>
+      <% } %>
     </div>
 
     <!-- Step 3: Playlist -->

@@ -46,45 +46,74 @@ Only two variables need to be set. Everything else (Spotify credentials, playlis
 | `DATA_DIR` | `/data` | Volume mount path inside the container |
 | `SHOW_LAN_WARNING` | `true` | Show the LAN-only security banner in the web UI. Set to `false` to hide it once you've acknowledged the risk. |
 
-### Synology NAS — Step by Step
+### Synology NAS — Step by Step (via DSM Web UI)
 
-1. **SSH into your NAS** and create the data directory:
-   ```bash
-   mkdir -p /volume1/docker/dailydrive/data
-   ```
+1. **Create Folder Structure, Copy Files & Set Permissions (File Station):**
+   - Open **File Station** in DSM.
+   - Navigate to the `docker` shared folder (e.g. `/volume1/docker`).
+   - Create a project folder: `dailydrive` and inside it a subfolder: `data` (resulting in `docker/dailydrive/data`).
+   - Copy the entire Git repository into the `docker/dailydrive` folder.
+   - **Mandatory:** Replace `docker-compose.yml` by renaming/overwriting it with `nas-deployment.example.yaml` (or copy the contents of `nas-deployment.example.yaml` into `docker-compose.yml`).
+   - **Important — Set Permissions:** Right-click the `data` folder → **Properties** → **Permission** tab:
+     - Add/edit permissions for **Everyone** (or `Everyone` / `Jeder`).
+     - Grant **Read & Write** (Lesen & Schreiben) permissions.
+     - Check **"Apply to this folder, sub-folders and files"** (Auf diesen Ordner, Unterordner und Dateien anwenden) to apply permissions recursively.
+     - Click **Save**.
 
-2. **Copy the deployment template** to your NAS:
-   ```bash
-   cp nas-deployment.example.yaml docker-compose.yml
-   ```
-   Adjust the volume path to match your NAS (`/volume1/...`) and the port if 8080 is already in use.
+2. **Build and Start via Container Manager:**
+   - Open **Container Manager** in DSM.
+   - Go to **Project** (Projekt) on the left sidebar and click **Create** (Erstellen).
+   - Configure the project:
+     - **Project Name:** `dailydrive`
+     - **Path:** Select the folder `docker/dailydrive`
+     - Once the path is selected, DSM automatically detects the existing `docker-compose.yml` (Source selection is grayed out/set automatically).
+   - Click **Next**.
+   - In the next step, DSM displays the contents of `docker-compose.yml`. **Review the configuration** to ensure volume paths (e.g. `/volume1/docker/dailydrive/data:/data`) and ports match your NAS setup.
+   - Click **Next** / **Done** to build the image and start the container.
 
-3. **Build and start** the container:
-   ```bash
-   docker compose up -d --build
-   ```
-   Or import `docker-compose.yml` via **Container Manager → Project → Create → Import file**.
+3. **Open the Web UI:**
+   - Open your browser at `http://<NAS-IP>:8080`
 
-4. **Open the Web UI:** `http://<NAS-IP>:8080`
-
-5. **Follow the Setup Wizard** — 3 steps:
+4. **Follow the Setup Wizard** — 3 steps:
    - Step 1: Create a Spotify Developer App and enter Client ID + Secret
    - Step 2: Authorize Daily Drive with your Spotify account
    - Step 3: Select your target playlist and podcasts
 
-6. **Done!** The playlist refreshes automatically every 24 hours (at 04:00). Change the interval under Config → Refresh interval.
+5. **Done!** The playlist refreshes automatically every 24 hours (at 04:00). Change the interval under Config → Refresh interval.
 
-> ⚠️ **Important:** During Step 1 of the Setup Wizard, you must enter the Redirect URI shown on screen **exactly** in your Spotify Developer Dashboard → App → Settings → Redirect URIs. Use your NAS's LAN IP, not `localhost`.
 
-### Web UI Pages
+### Web UI Overview & Screenshots
 
 | Page | URL | Description |
 |---|---|---|
-| Dashboard | `/` | Status, last refresh, manual trigger, playlist link |
-| Setup Wizard | `/setup` | Guided 3-step Spotify OAuth setup |
-| Configuration | `/config` | Edit all parameters — credentials, podcasts, music, schedule |
+| Dashboard | `/` | Status, last refresh, manual trigger, live Spotify playlist view |
+| Setup Wizard | `/setup` | Guided 3-step Spotify OAuth setup with IBM Bob |
+| Configuration | `/config` | Edit playlist, podcasts, music sources, mix pattern & schedule |
 | Logs | `/logs` | Last 200 lines of today's log file |
 | About | `/about` | Version info, credits, tech stack |
+
+#### Dashboard
+View execution status, token validity, next scheduled refresh, and live playlist contents with one-click refresh.
+
+<p align="center">
+  <img src="img/screenshots/dashboard.png" alt="Daily Drive Dashboard" width="750">
+</p>
+
+#### Guided Setup Wizard
+IBM Bob guides you through Spotify Developer App setup and OAuth authorization without touching terminal configuration.
+
+<p align="center">
+  <img src="img/screenshots/setup-wizard.png" alt="Setup Wizard" width="750">
+</p>
+
+#### Configuration
+Manage podcasts (with top-pinning and round-robin alternation) and music sources (top tracks, liked songs, genre search, source playlists):
+
+<p align="center">
+  <img src="img/screenshots/config-podcasts.png" alt="Podcast Configuration" width="750">
+  <br><br>
+  <img src="img/screenshots/config-music.png" alt="Music and Schedule Configuration" width="750">
+</p>
 
 ### Volume Mount — Persistent Files
 

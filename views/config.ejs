@@ -8,7 +8,20 @@
 <% } %>
 
 <% if (flash) { %>
-<div class="alert alert-<%= flash.type %>" style="margin-bottom:1rem"><%= flash.message %></div>
+<div class="alert alert-<%= flash.type %>" style="margin-bottom:1rem">
+  <div><%= flash.message %></div>
+  <% if (flash.message && (flash.message.includes('EACCES') || flash.message.includes('permission denied'))) { %>
+  <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.15);font-size:0.85rem;line-height:1.5">
+    <strong style="display:block;margin-bottom:0.35rem" data-i18n="eacces_help_title">📁 Berechtigungsproblem auf der Synology NAS beheben:</strong>
+    <ol style="margin:0;padding-left:1.25rem">
+      <li data-i18n="eacces_help_step1">Öffne die <strong>File Station</strong> im Synology DSM.</li>
+      <li data-i18n="eacces_help_step2">Navigiere zum gemounteten Ordner (z. B. <code>docker/dailydrive/data</code>).</li>
+      <li data-i18n="eacces_help_step3">Rechtsklick auf den Ordner <code>data</code> → <strong>Eigenschaften</strong> → Reiter <strong>Berechtigung</strong>.</li>
+      <li data-i18n="eacces_help_step4">Stelle sicher, dass <strong>Everyone / Jeder</strong> Lese- und Schreibrechte besitzt (inkl. Haken bei <em>"Auf diesen Ordner, Unterordner und Dateien anwenden"</em>).</li>
+    </ol>
+  </div>
+  <% } %>
+</div>
 <% } %>
 
 <% if (saved) { %>
@@ -156,6 +169,7 @@
     <div class="form-group">
       <label data-i18n="config_total_songs">Total songs</label>
       <input type="number" name="total_songs" value="<%= config.music && config.music.total_songs || 15 %>" min="1" max="200">
+      <p class="field-hint" data-i18n="config_total_songs_hint">Target number of songs in the playlist. If genres are specified, 50% comes from familiar sources (playlists / likes / top tracks) and 50% from genre discovery search.</p>
     </div>
     <div class="form-group">
       <div class="checkbox-row">
@@ -166,7 +180,8 @@
     </div>
     <div class="form-group">
       <label data-i18n="config_genres">Genre tags (comma-separated)</label>
-      <input type="text" name="genres" value="<%= config.music && config.music.genres ? config.music.genres.join(', ') : '' %>">
+      <input type="text" name="genres" value="<%= config.music && config.music.genres ? config.music.genres.join(', ') : '' %>" placeholder="pop, indie rock, electronic">
+      <p class="field-hint" data-i18n="config_genres_hint">Separate genres with commas or semicolons (e.g. pop, dance, indie). Note: Spotify returns up to 10 discovery tracks per genre search.</p>
     </div>
 
     <!-- Source playlists -->

@@ -19,7 +19,7 @@ const SpotifyWebApi = require("spotify-web-api-node");
 
 const { PATHS, resolveSpotifyCredentials } = require("./paths");
 const tokenManager = require("./token-manager");
-const { main: runRefresh } = require("./index");
+const { main: runRefresh, setLogger: setIndexLogger } = require("./index");
 
 // ---------------------------------------------------------------------------
 // Config
@@ -29,10 +29,13 @@ const WEB_PORT         = parseInt(process.env.WEB_PORT  || "8080", 10);
 const REFRESH_H        = parseInt(process.env.REFRESH_INTERVAL_HOURS || "24", 10);
 const SHOW_LAN_WARNING = process.env.SHOW_LAN_WARNING !== "false";
 
-// Ensure log directory exists
-if (!fs.existsSync(PATHS.LOG_DIR)) {
-  fs.mkdirSync(PATHS.LOG_DIR, { recursive: true });
-}
+// Ensure log directory exists (best-effort — may fail if the mounted /data
+// volume is owned by root on a NAS; file logging is silently skipped in that case)
+try {
+  if (!fs.existsSync(PATHS.LOG_DIR)) {
+    fs.mkdirSync(PATHS.LOG_DIR, { recursive: true });
+  }
+} catch (_) { /* continue without file logging */ }
 
 // ---------------------------------------------------------------------------
 // Logging helpers — write to stdout AND /data/logs/YYYY-MM-DD.log
@@ -46,6 +49,9 @@ function logLine(msg) {
     fs.appendFileSync(path.join(PATHS.LOG_DIR, `${day}.log`), line + "\n");
   } catch (_) { /* best-effort */ }
 }
+
+// Route index.js log output through logLine so it appears in the web UI log
+setIndexLogger(logLine);
 
 // ---------------------------------------------------------------------------
 // Config I/O
@@ -95,7 +101,16 @@ function getRedirectUri(req) {
   if (process.env.SPOTIFY_REDIRECT_URI) return process.env.SPOTIFY_REDIRECT_URI;
   // Auto-detect from incoming request (useful in web UI first-time setup)
   const proto = req.headers["x-forwarded-proto"] || req.protocol || "http";
-  const host  = req.headers["x-forwarded-host"]  || req.headers.host || `127.0.0.1:${WEB_PORT}`;
+  let host  = req.headers["x-forwarded-host"]  || req.headers.host || `127.0.0.1:${WEB_PORT}`;
+
+  // If loopback is forced (useful for local NAS setups without HTTPS)
+  const forceLoopback = req.query.use_loopback === "true" || (req.headers.referer && req.headers.referer.includes("use_loopback=true"));
+  if (forceLoopback) {
+    const portMatch = host.match(/:(\d+)$/);
+    const port = portMatch ? portMatch[1] : WEB_PORT;
+    host = `127.0.0.1:${port}`;
+  }
+
   // Spotify does NOT accept "localhost" as redirect URI (blocked since Nov 2025).
   // Replace it with the explicit IPv4 loopback address.
   const safHost = host.replace(/^localhost(:\d+)?$/, `127.0.0.1$1`);
@@ -373,7 +388,7 @@ app.post("/api/create-playlist", async (req, res) => {
 
     // Upload playlist cover image (JPEG, base64-encoded, max 256 KB)
     try {
-      const coverPath = path.join(__dirname, "public", "img", "bob", "playlist-cover.jpg");
+      const coverPath = path.join(__dirname, "public", "img", "dailydrive.jpg");
       const coverB64  = fs.readFileSync(coverPath).toString("base64");
       const imgRes = await fetch(`https://api.spotify.com/v1/playlists/${id}/images`, {
         method:  "PUT",
@@ -476,6 +491,55 @@ app.get("/callback", async (req, res) => {
   }
 });
 
+// ── POST /setup/callback-paste  Spotify OAuth redirect paste (LAN/NAS fallback) ──────
+app.post("/setup/callback-paste", async (req, res) => {
+  const { callback_url } = req.body;
+  if (!callback_url) {
+    return res.redirect("/setup?step=2&error=No+URL+provided");
+  }
+
+  try {
+    const trimmedUrl = callback_url.trim();
+    const urlObj = new URL(trimmedUrl);
+    const code = urlObj.searchParams.get("code");
+    const error = urlObj.searchParams.get("error");
+    const state = urlObj.searchParams.get("state");
+
+    if (error) {
+      return res.redirect(`/setup?step=2&error=${encodeURIComponent(error)}`);
+    }
+
+    if (!code) {
+      return res.redirect("/setup?step=2&error=No+authorization+code+found+in+the+URL");
+    }
+
+    const config = loadConfig();
+    const creds  = resolveSpotifyCredentials(config.spotify || {});
+
+    // Reconstruct the exact redirectUri used in the authorize link
+    const redirectUri = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+
+    const spotifyApi = new SpotifyWebApi({
+      clientId:     creds.client_id,
+      clientSecret: creds.client_secret,
+      redirectUri,
+    });
+
+    const data = await spotifyApi.authorizationCodeGrant(code);
+    tokenManager.saveToken({
+      access_token:  data.body.access_token,
+      refresh_token: data.body.refresh_token,
+      expires_at:    Date.now() + data.body.expires_in * 1000,
+    });
+
+    logLine("✅ Spotify OAuth successful via URL copy-paste — token saved");
+    res.redirect(state === "dailydrive_reauth" ? "/?reauth=1" : "/setup?step=3");
+  } catch (err) {
+    logLine("❌ OAuth token exchange via URL copy-paste failed: " + err.message);
+    res.redirect(`/setup?step=2&error=${encodeURIComponent(err.message)}`);
+  }
+});
+
 // ── GET /setup/done  Show success page after playlist step ───────────────────
 app.get("/setup/done", (req, res) => {
   const config = loadConfig();
@@ -537,7 +601,7 @@ app.post("/config", (req, res) => {
         enabled: b.saved_tracks_enabled === "1",
         count:   parseInt(b.saved_tracks_count || "50", 10),
       },
-      genres:      (b.genres || "").split(",").map(s => s.trim()).filter(Boolean),
+      genres:      (b.genres || "").split(/[,;\n\r]+/).map(s => s.trim()).filter(Boolean),
       playlists:   [],
       total_songs: parseInt(b.total_songs || "15", 10),
       shuffle:     b.shuffle === "1",
@@ -581,7 +645,7 @@ app.post("/config", (req, res) => {
   }
 
   logLine("💾 Configuration saved via web UI");
-  res.redirect("/config?saved=1");
+  res.redirect("/?ok=Configuration+saved");
   } catch (err) {
     logLine("❌ /config save error: " + err.message);
     res.redirect("/config?error=" + encodeURIComponent(err.message));

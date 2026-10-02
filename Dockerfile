@@ -4,13 +4,15 @@
 # Runs as non-root user (uid 1001) — security-compliant
 # =============================================================================
 
-FROM registry.redhat.io/ubi9/nodejs-20-minimal:latest
+FROM registry.access.redhat.com/ubi9/nodejs-24-minimal:latest
 
 # ── Metadata ─────────────────────────────────────────────────────────────────
 LABEL org.opencontainers.image.title="Daily Drive by IBM Bob"
 LABEL org.opencontainers.image.description="Spotify Daily Drive rebuilt — podcasts + music, containerized"
 LABEL org.opencontainers.image.source="https://github.com/patdeg/dailydrive"
 LABEL org.opencontainers.image.licenses="MIT"
+
+USER 0
 
 # ── Working directory ─────────────────────────────────────────────────────────
 WORKDIR /app
