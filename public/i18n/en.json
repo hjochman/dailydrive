@@ -102,6 +102,8 @@
   "config_podcast_alternate": "Alternate podcasts (round-robin)",
   "config_podcast_alternate_hint": "When enabled, episodes from all podcasts are interleaved alternately instead of one podcast at a time.",
   "config_top_tracks": "Enable top tracks",
+  "config_saved_tracks": "Enable liked/saved songs",
+  "config_saved_tracks_count": "Saved songs fetch count",
   "config_time_range": "Time range",
   "config_time_range_short": "Last month",
   "config_time_range_medium": "Last 6 months",

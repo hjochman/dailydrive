@@ -143,6 +143,17 @@
       </select>
     </div>
     <div class="form-group">
+      <div class="checkbox-row">
+        <input type="checkbox" id="saved_tracks_enabled" name="saved_tracks_enabled" value="1"
+               <%= (config.music && config.music.saved_tracks && config.music.saved_tracks.enabled) ? 'checked' : '' %>>
+        <label for="saved_tracks_enabled" style="text-transform:none;letter-spacing:0" data-i18n="config_saved_tracks">Enable liked/saved songs</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_saved_tracks_count">Saved songs fetch count</label>
+      <input type="number" name="saved_tracks_count" value="<%= config.music && config.music.saved_tracks && config.music.saved_tracks.count || 50 %>" min="1" max="500">
+    </div>
+    <div class="form-group">
       <label data-i18n="config_total_songs">Total songs</label>
       <input type="number" name="total_songs" value="<%= config.music && config.music.total_songs || 15 %>" min="1" max="200">
     </div>

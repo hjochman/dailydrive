@@ -533,6 +533,10 @@ app.post("/config", (req, res) => {
         time_range: b.time_range || "short_term",
         count:      30,
       },
+      saved_tracks: {
+        enabled: b.saved_tracks_enabled === "1",
+        count:   parseInt(b.saved_tracks_count || "50", 10),
+      },
       genres:      (b.genres || "").split(",").map(s => s.trim()).filter(Boolean),
       playlists:   [],
       total_songs: parseInt(b.total_songs || "15", 10),

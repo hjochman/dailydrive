@@ -63,6 +63,12 @@ music:
     time_range: "short_term"   # short_term (~4 weeks), medium_term (~6 months), long_term (all time)
     count: 30                  # fetch pool size (shuffled + trimmed to total_songs)
 
+  # Liked/saved songs — pulls from your Spotify library (heart-saved tracks)
+  # Good for a wide personal collection beyond just top-played songs
+  # saved_tracks:
+  #   enabled: true
+  #   count: 50                # fetch pool size; max 50 per API call, paginated automatically
+
   # Genre-based music discovery (optional)
   # Finds fresh tracks by genre via Spotify search
   # genres:

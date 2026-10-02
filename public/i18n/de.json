@@ -102,6 +102,8 @@
   "config_podcast_alternate": "Podcasts alternieren (nicht nacheinander)",
   "config_podcast_alternate_hint": "Episoden aller Podcasts werden im Wechsel eingemischt statt erst alle Episoden eines Podcasts.",
   "config_top_tracks": "Top-Tracks aktivieren",
+  "config_saved_tracks": "Gelikte/gespeicherte Songs aktivieren",
+  "config_saved_tracks_count": "Anzahl zu ladender gespeicherter Songs",
   "config_time_range": "Zeitraum",
   "config_time_range_short": "Letzter Monat",
   "config_time_range_medium": "Letzte 6 Monate",

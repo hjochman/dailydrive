@@ -235,7 +235,45 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
     }
   }
 
-  // --- Source 2: Pull from user's top tracks (most-played songs) ---
+  // --- Source 2: Pull from user's liked/saved songs ---
+  if (musicConfig.saved_tracks && musicConfig.saved_tracks.enabled) {
+    const count = musicConfig.saved_tracks.count || 50;
+    console.log(`🎵 Fetching saved/liked tracks (up to ${count})...`);
+
+    try {
+      let offset = 0;
+      let remaining = count;
+
+      // Spotify returns max 50 saved tracks per request, so paginate if needed
+      while (remaining > 0) {
+        const limit = Math.min(remaining, 50);
+        const data = await spotifyApi.getMySavedTracks({ limit, offset });
+
+        for (const entry of data.body.items) {
+          const track = entry.track;
+          if (track && track.uri) {
+            allTracks.push({
+              uri: track.uri,
+              name: track.name,
+              artist: track.artists?.map((a) => a.name).join(", ") || "Unknown",
+              type: "track",
+            });
+          }
+        }
+
+        // If fewer tracks returned than requested, no more pages
+        if (data.body.items.length < limit) break;
+        offset += limit;
+        remaining -= limit;
+      }
+
+      console.log(`    Found ${allTracks.length} tracks from saved songs`);
+    } catch (err) {
+      console.error(`    ⚠️  Failed to fetch saved tracks: ${err.message}`);
+    }
+  }
+
+  // --- Source 3: Pull from user's top tracks (most-played songs) ---
   if (musicConfig.top_tracks && musicConfig.top_tracks.enabled) {
     // time_range controls the window:
     //   "short_term"  = last ~4 weeks
