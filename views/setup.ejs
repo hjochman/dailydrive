@@ -1,0 +1,276 @@
+<h1 data-i18n="setup_title">Setup</h1>
+<p style="color:var(--text-muted);margin-bottom:1.5rem" data-i18n="setup_intro">I'll guide you step by step.</p>
+
+<% if (page === 'setup_success') { %>
+<!-- ===== Success ===== -->
+<div class="card" style="text-align:center;padding:3rem 2rem">
+  <img src="/img/bob/bob-standing-BECrMjXJ.webp" style="height:160px;margin-bottom:1.5rem;filter:drop-shadow(0 0 32px rgba(15,98,254,.5))">
+  <h2 data-i18n="setup_success_title">Successfully connected!</h2>
+  <p style="color:var(--text-muted);margin:0.75rem 0 1.5rem" data-i18n="setup_success_desc">Daily Drive is now connected to your Spotify account.</p>
+  <a href="/" class="btn btn-primary" data-i18n="setup_success_go_dash">Go to Dashboard</a>
+</div>
+
+<% } else { %>
+
+<!-- ===== Step indicator ===== -->
+<div class="steps-indicator">
+  <div class="step-pill <%= step >= 1 ? (step > 1 ? 'done' : 'active') : '' %>">1</div>
+  <div class="step-pill <%= step >= 2 ? (step > 2 ? 'done' : 'active') : '' %>">2</div>
+  <div class="step-pill <%= step >= 3 ? (step > 3 ? 'done' : 'active') : '' %>">3</div>
+</div>
+
+<div class="wizard-layout">
+  <!-- ===== Left: content ===== -->
+  <div>
+
+    <!-- Step 1 -->
+    <div class="step-panel <%= step === 1 ? 'active' : '' %>">
+      <h2 data-i18n="setup_step1_title">Step 1: Create Spotify Developer App</h2>
+      <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem" data-i18n="setup_step1_desc">...</p>
+
+      <ul class="hint-list">
+        <li>
+          <span data-i18n="setup_step1_hint1">Go to</span>
+          <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
+          <span data-i18n="setup_step1_hint2">and sign in.</span>
+        </li>
+        <li data-i18n="setup_step1_hint3">Click <strong>"Create App"</strong>.</li>
+        <li>
+          <span data-i18n="setup_step1_hint4">Enter exactly this value as <strong>Redirect URI</strong>:</span>
+          <div class="redirect-uri-box" id="redirect-uri-display"><%= redirectUri %></div>
+          <p class="field-hint" data-i18n="setup_step1_hint4b" style="margin-top:.4rem">
+            ⚠️ Spotify only accepts <code>127.0.0.1</code> — <strong>not</strong> <code>localhost</code>.
+          </p>
+        </li>
+        <li data-i18n="setup_step1_hint5">Check both <strong>Web API</strong> and <strong>Web Playback SDK</strong>.</li>
+        <li data-i18n="setup_step1_hint6">Open <strong>Settings → User Management</strong> and add your Spotify email.</li>
+      </ul>
+
+      <form action="/setup/credentials" method="POST">
+        <div class="form-group">
+          <label for="client_id" data-i18n="setup_step1_client_id">Client ID</label>
+          <input type="text" id="client_id" name="client_id" value="<%= credentials.client_id || '' %>" required placeholder="Paste your Spotify Client ID">
+        </div>
+        <div class="form-group">
+          <label for="client_secret" data-i18n="setup_step1_client_secret">Client Secret</label>
+          <input type="password" id="client_secret" name="client_secret" value="<%= credentials.client_id ? '••••••••' : '' %>" autocomplete="new-password" placeholder="Paste your Spotify Client Secret">
+          <% if (credentials.client_id) { %><p class="field-hint">Leave blank to keep existing value.</p><% } %>
+        </div>
+        <div class="form-group">
+          <label data-i18n="setup_step1_redirect">Redirect URI</label>
+          <div class="copy-block">
+            <input type="text" value="<%= redirectUri %>" readonly id="redir-copy">
+            <button type="button" class="btn-copy" onclick="copyRedirect()">Copy</button>
+          </div>
+          <p class="field-hint" data-i18n="setup_step1_redirect_hint">
+            Copy this value exactly into your Spotify Dashboard → Redirect URIs.
+            Use <strong>127.0.0.1</strong>, not <code>localhost</code> — Spotify blocks <code>localhost</code> since Nov 2025.
+          </p>
+        </div>
+        <div class="btn-row">
+          <button type="submit" class="btn btn-primary" data-i18n="setup_step1_next">Next</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Step 2: Spotify OAuth -->
+    <div class="step-panel <%= step === 2 ? 'active' : '' %>">
+      <h2 data-i18n="setup_step2_title">Step 2: Connect your Spotify account</h2>
+      <p style="color:var(--text-muted);margin:0.75rem 0 1.5rem;font-size:.9rem" data-i18n="setup_step2_desc">
+        Now we'll connect Daily Drive to your Spotify account. You'll be briefly redirected to Spotify.
+      </p>
+
+      <div class="btn-row">
+        <a href="/setup?step=1" class="btn btn-ghost" data-i18n="setup_step2_back">Back</a>
+        <a href="/setup/authorize" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
+          🎵 <span data-i18n="setup_step2_authorize">Authorize with Spotify</span>
+        </a>
+      </div>
+    </div>
+
+    <!-- Step 3: Playlist -->
+    <div class="step-panel <%= step === 3 ? 'active' : '' %>">
+      <h2 data-i18n="setup_step3_title">Step 3: Playlist</h2>
+
+      <form action="/setup/playlist" method="POST">
+        <!-- Hidden field carries the ID to the server -->
+        <input type="hidden" id="playlist_url" name="playlist_url" value="<%= config.playlist_id || '' %>">
+
+        <!-- Card showing current selection -->
+        <div id="setup-playlist-card" style="display:<%= config.playlist_id ? 'flex' : 'none' %>;align-items:center;gap:.75rem;padding:.6rem .75rem;background:var(--bg2,#262626);border:1px solid var(--border);border-radius:6px;margin-bottom:.75rem">
+          <img id="setup-playlist-img" src="" alt="" style="width:40px;height:40px;border-radius:4px;object-fit:cover;display:none">
+          <div style="flex:1;min-width:0">
+            <div id="setup-playlist-name" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= config.playlist_id || '' %></div>
+            <div id="setup-playlist-id" style="font-size:.75rem;color:var(--text-muted)"><%= config.playlist_id || '' %></div>
+          </div>
+          <button type="button" class="btn-remove" onclick="clearSetupPlaylist()" title="Remove">✕</button>
+        </div>
+        <div id="setup-playlist-empty" style="display:<%= config.playlist_id ? 'none' : 'block' %>;color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem" data-i18n="dash_playlist_empty">No playlist selected.</div>
+
+        <p id="create-playlist-status" style="font-size:.85rem;margin-top:.35rem;display:none"></p>
+
+        <div class="btn-row" style="margin-top:0">
+          <button type="button" class="btn btn-primary" onclick="openSetupPicker()" data-i18n="picker_select_playlist">🔍 Select from Spotify</button>
+          <button type="button" class="btn btn-ghost" id="create-playlist-btn"
+            onclick="createPlaylist()" data-i18n="setup_step3_create_btn">
+            + Create new
+          </button>
+        </div>
+
+        <div class="btn-row" style="margin-top:1rem">
+          <a href="/setup?step=2" class="btn btn-ghost" data-i18n="setup_step3_back">Back</a>
+          <button type="submit" class="btn btn-primary" data-i18n="setup_step3_next">Next →</button>
+        </div>
+      </form>
+
+      <!-- Playlist picker modal (inline for setup wizard) -->
+      <div id="setup-picker" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;overflow-y:auto">
+        <div style="background:var(--surface,#161616);border:1px solid var(--border,#393939);border-radius:8px;max-width:520px;margin:4rem auto;padding:1.5rem">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+            <strong data-i18n="picker_select_playlist">Select playlist</strong>
+            <button type="button" onclick="closeSetupPicker()" style="background:none;border:none;color:inherit;font-size:1.25rem;cursor:pointer">&times;</button>
+          </div>
+          <div id="setup-picker-loading" style="text-align:center;padding:1rem;color:var(--text-muted)">Loading…</div>
+          <div id="setup-picker-results" class="picker-results-grid"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /left -->
+
+  <!-- ===== Right: Bob ===== -->
+  <div class="wizard-bob">
+    <img src="/img/bob/bob-standing-BECrMjXJ.webp" alt="IBM Bob">
+    <p class="bob-caption">IBM Bob</p>
+  </div>
+</div><!-- /wizard-layout -->
+
+<% } %>
+
+<script>
+function setSetupPlaylist(id, name, image) {
+  document.getElementById('playlist_url').value = id;
+  document.getElementById('setup-playlist-name').textContent = name;
+  document.getElementById('setup-playlist-id').textContent = id;
+  const img = document.getElementById('setup-playlist-img');
+  if (image) { img.src = image; img.style.display = 'block'; }
+  else { img.style.display = 'none'; }
+  document.getElementById('setup-playlist-card').style.display = 'flex';
+  document.getElementById('setup-playlist-empty').style.display = 'none';
+}
+
+function clearSetupPlaylist() {
+  document.getElementById('playlist_url').value = '';
+  document.getElementById('setup-playlist-card').style.display = 'none';
+  document.getElementById('setup-playlist-empty').style.display = 'block';
+}
+
+async function openSetupPicker() {
+  document.getElementById('setup-picker').style.display = 'block';
+  document.getElementById('setup-picker-loading').style.display = 'block';
+  document.getElementById('setup-picker-results').innerHTML = '';
+  try {
+    const resp = await fetch('/api/user-playlists');
+    const items = await resp.json();
+    document.getElementById('setup-picker-loading').style.display = 'none';
+    const grid = document.getElementById('setup-picker-results');
+    if (!items || items.length === 0) {
+      grid.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:1rem">No playlists found.</p>';
+      return;
+    }
+    items.forEach(item => {
+      const card = document.createElement('div');
+      card.className = 'picker-result-card';
+      const imgUrl = item.images && item.images.length > 0 ? item.images[item.images.length - 1].url : null;
+      card.onclick = () => {
+        setSetupPlaylist(item.id, item.name, imgUrl);
+        closeSetupPicker();
+      };
+      card.innerHTML = `
+        <img src="${imgUrl || '/img/bob/bob-standing-BECrMjXJ.webp'}" alt="${item.name}">
+        <div class="picker-result-info">
+          <div class="picker-result-name">${item.name}</div>
+          <div class="picker-result-subtext">${item.owner || ''}</div>
+        </div>
+        <button type="button" class="btn btn-ghost select-btn">Select</button>
+      `;
+      grid.appendChild(card);
+    });
+  } catch(e) {
+    document.getElementById('setup-picker-loading').textContent = 'Error: ' + e.message;
+  }
+}
+function closeSetupPicker() {
+  document.getElementById('setup-picker').style.display = 'none';
+}
+
+// On page load: fetch Spotify name for already-saved playlist ID
+(async function() {
+  const id = document.getElementById('playlist_url').value;
+  if (!id) return;
+  try {
+    const resp = await fetch('/api/playlist-info/' + encodeURIComponent(id));
+    if (!resp.ok) return;
+    const data = await resp.json();
+    setSetupPlaylist(data.id, data.name, data.image);
+  } catch(e) { /* silent */ }
+})();
+
+function copyRedirect() {
+  const el = document.getElementById('redir-copy');
+  el.select();
+  navigator.clipboard.writeText(el.value).catch(() => document.execCommand('copy'));
+  const btn = el.nextElementSibling;
+  btn.textContent = '✓';
+  setTimeout(() => btn.textContent = 'Copy', 1500);
+}
+
+function extractPlaylistId(value) {
+  value = value.trim();
+  // Full URL: https://open.spotify.com/playlist/37i9dQZF1DX... or with ?si=...
+  const m = value.match(/open\.spotify\.com\/playlist\/([A-Za-z0-9]+)/);
+  if (m) return m[1];
+  // Spotify URI: spotify:playlist:37i9dQZF1DX...
+  const u = value.match(/spotify:playlist:([A-Za-z0-9]+)/);
+  if (u) return u[1];
+  // Raw ID (alphanumeric, 22 chars typical)
+  if (/^[A-Za-z0-9]{10,}$/.test(value)) return value;
+  return null;
+}
+
+function parsePlaylistInput(value) {
+  const id = extractPlaylistId(value);
+  const input = document.getElementById('playlist_url');
+  if (id && id !== value.trim()) {
+    input.value = id;
+  }
+}
+
+async function createPlaylist() {
+  const btn = document.getElementById('create-playlist-btn');
+  const status = document.getElementById('create-playlist-status');
+  btn.disabled = true;
+  btn.textContent = '…';
+  status.style.display = 'block';
+  status.style.color = 'var(--text-muted)';
+  status.textContent = 'Creating playlist…';
+
+  try {
+    const res = await fetch('/api/create-playlist', { method: 'POST' });
+    const data = await res.json();
+    if (data.id) {
+      setSetupPlaylist(data.id, data.name, null);
+      status.style.color = '#22c55e';
+      status.textContent = '✓ Playlist "' + data.name + '" created!';
+      btn.textContent = '✓ Created';
+    } else {
+      throw new Error(data.error || 'Unknown error');
+    }
+  } catch (e) {
+    status.style.color = '#ef4444';
+    status.textContent = '✗ ' + e.message;
+    btn.disabled = false;
+    btn.textContent = '+ Create new';
+  }
+}
+</script>

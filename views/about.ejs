@@ -1,0 +1,53 @@
+<h1 data-i18n="about_title">About</h1>
+
+<div class="card" style="max-width:640px;">
+  <div style="display:flex;align-items:center;gap:1.5rem;margin-bottom:1.5rem;">
+    <img src="/img/bob/bob-standing-BECrMjXJ.webp" alt="IBM Bob" style="height:120px;width:auto;">
+    <div>
+      <h2 style="margin-bottom:0.25rem;" data-i18n="about_app_name">Daily Drive by IBM Bob</h2>
+      <p style="color:var(--text-muted);font-size:0.875rem;">
+        <span data-i18n="about_version">Version</span>
+        <strong style="color:var(--accent);font-family:monospace;"> <%= version %></strong>
+      </p>
+    </div>
+  </div>
+
+  <p style="margin-bottom:1rem;" data-i18n="about_desc">
+    Daily Drive recreates Spotify's discontinued &ldquo;Daily Drive&rdquo; feature &mdash; a playlist that
+    automatically mixes your favourite podcast episodes with personalised music tracks, refreshed on a schedule.
+  </p>
+
+  <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0;">
+
+  <h3 data-i18n="about_powered_title">Powered by IBM Bob</h3>
+  <p style="margin-top:0.5rem;margin-bottom:1rem;" data-i18n="about_powered_desc">
+    This web UI was built with <a href="https://www.ibm.com/products/ibm-bob" target="_blank" rel="noopener">IBM Bob</a>,
+    IBM&rsquo;s AI coding assistant. Bob helped design, implement and iteratively refine this project.
+  </p>
+
+  <h3 data-i18n="about_based_title">Based on</h3>
+  <p style="margin-top:0.5rem;margin-bottom:1rem;">
+    <span data-i18n="about_based_desc">Original CLI project by</span>
+    <a href="https://github.com/hjochman/dailydrive" target="_blank" rel="noopener">hjochman / dailydrive</a>
+    <span data-i18n="about_based_desc2">on GitHub.</span>
+    <span data-i18n="about_based_desc3">This fork adds a full Docker-based web UI, IBM Bob branding, OAuth wizard and scheduled playlist refresh.</span>
+  </p>
+
+  <h3 data-i18n="about_tech_title">Tech Stack</h3>
+  <ul style="margin-top:0.5rem;padding-left:1.25rem;display:flex;flex-direction:column;gap:0.3rem;color:var(--text-muted);font-size:0.875rem;">
+    <li>Node.js 20 &middot; Express &middot; EJS</li>
+    <li>spotify-web-api-node &middot; node-cron &middot; js-yaml</li>
+    <li>Red Hat UBI9 container image</li>
+    <li>IBM Design Language &middot; Dark Theme</li>
+  </ul>
+
+  <hr style="border:none;border-top:1px solid var(--border);margin:1.25rem 0;">
+
+  <p style="font-size:0.8rem;color:var(--text-muted);">
+    <span data-i18n="about_license">License: MIT</span>
+    &nbsp;&middot;&nbsp;
+    <a href="https://github.com/hjochman/dailydrive" target="_blank" rel="noopener">GitHub</a>
+    &nbsp;&middot;&nbsp;
+    <a href="/logs" data-i18n="about_logs_link">Logs</a>
+  </p>
+</div>

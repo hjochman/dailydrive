@@ -1,68 +1,92 @@
-# Daily Drive — AI Assistant Guide
+# Daily Drive by IBM Bob — AI Assistant Guide
 
 This file helps AI coding assistants (Claude Code, Gemini, Copilot, etc.) understand and work with this project. If a user asks you to help them set up Daily Drive, follow the setup workflow below.
 
 ## What This Project Does
 
-Recreates Spotify's discontinued "Daily Drive" feature — a playlist that mixes podcast episodes and music tracks, updated automatically on a schedule. Runs on Raspberry Pi, Orange Pi, or any Linux machine.
+Recreates Spotify's discontinued "Daily Drive" feature — a playlist that mixes podcast episodes and music tracks, updated automatically on a schedule. Runs as a **Docker container on a Synology NAS** (or any Linux machine), with a full **IBM Bob-branded Web UI** for setup and configuration.
 
 ## Tech Stack
 
-- **Runtime:** Node.js (v18+)
+- **Runtime:** Node.js (v20+)
+- **Container:** Red Hat UBI9 (`registry.redhat.io/ubi9/nodejs-20-minimal`)
+- **Web Framework:** Express + EJS templates
 - **Spotify Library:** `spotify-web-api-node` — wraps the Spotify Web API
-- **Config:** YAML via `js-yaml`
-- **Auth:** OAuth 2.0 Authorization Code flow with token persistence
-- **Scheduling:** systemd timer or cron
+- **Config:** YAML via `js-yaml`, written by web UI to `/data/config.yaml`
+- **Auth:** OAuth 2.0 via web browser (Setup Wizard in web UI), token persisted in `/data/.spotify-token.json`
+- **Scheduling:** `node-cron` inside `server.js` (configurable via `REFRESH_INTERVAL_HOURS`)
+- **i18n:** DE/EN switchable via `public/lang.js` + `public/i18n/{de,en}.json`
 
 ## Project Structure
 
 ```
-index.js              — Main script: fetches podcasts + music, mixes, updates playlist
-setup.js              — One-time OAuth setup: starts local server, catches callback, saves token
+server.js             — Container entrypoint: Express web server + scheduler + token daemon
+index.js              — Playlist builder logic (exported as module, also runnable as CLI)
+paths.js              — Centralised path & credential resolution (DATA_DIR, env vars)
+token-manager.js      — Spotify token refresh daemon (shared by server.js and index.js)
+setup.js              — Legacy CLI OAuth setup (still works for headless/advanced use)
 taste-profile.js      — LLM-powered genre detection via Demeterics API
-config.example.yaml   — Config template with comments explaining every field
-config.yaml           — User's actual config (git-ignored, contains secrets)
-.env                  — API keys for Demeterics etc. (git-ignored)
-.spotify-token.json   — Saved OAuth tokens (git-ignored, auto-refreshed)
-state.json            — Run state cache (git-ignored, tracks last episode URIs)
-install.sh            — Quick installer for fresh Linux machines
-systemd/              — Service + timer files for auto-scheduling
+taste-profile-google.js — LLM-powered genre detection via Google Gemini
+views/                — EJS templates for the Web UI
+  layout.ejs          — Shared header (IBM Bob logo, nav, DE/EN toggle), footer
+  index.ejs           — Dashboard
+  setup.ejs           — 3-step OAuth wizard (Bob as guide character)
+  config.ejs          — Config editor
+  logs.ejs            — Log viewer
+public/               — Static assets
+  style.css           — IBM dark theme (black bg, IBM Blue #0f62fe)
+  lang.js             — Client-side DE/EN language switcher
+  i18n/de.json        — German UI strings
+  i18n/en.json        — English UI strings
+  img/bob/            — IBM Bob logo and standing illustration
+config.example.yaml   — Config template (for CLI usage)
+Dockerfile            — Red Hat UBI9 container image, non-root uid 1001
+docker-compose.yml    — Local development compose file
+nas-deployment.example.yaml — Synology NAS deployment template (fully commented)
 package.json          — Dependencies and npm scripts
+.dockerignore         — Excludes secrets/data from Docker build context
 .gitignore            — Comprehensive protection for secrets (PUBLIC REPO)
 ```
 
 ## Key Commands
 
 ```bash
-npm install           # Install dependencies
-npm run setup         # One-time Spotify authentication (deletes old token first)
-npm start             # Run the playlist builder
-npm test              # Dry run (shows what would happen without changing the playlist)
-npm run taste         # Auto-detect genre tags via LLM (requires DEMETERICS_API_KEY in .env)
+npm install             # Install dependencies
+npm run start:server    # Start the web server (container mode)
+npm run setup           # Legacy CLI OAuth setup (headless/advanced)
+npm start               # CLI playlist builder (direct, no web server)
+npm test                # Dry run (shows what would happen without changing the playlist)
+npm run taste           # Auto-detect genre tags via LLM (requires DEMETERICS_API_KEY in .env)
+
+# Docker
+docker compose up -d --build   # Build and start container
+docker compose logs -f         # Follow container logs
+docker compose down            # Stop container
 ```
 
 ## Setup Workflow (for AI assistants helping users)
 
-When a user asks you to help set up Daily Drive, follow these steps:
+When a user asks you to help set up Daily Drive, **prefer the container/web UI path** for NAS users, or the CLI path for advanced users.
 
-### 1. Spotify App Creation
-Guide the user to https://developer.spotify.com/dashboard to create an app:
-- **Redirect URI:** `http://127.0.0.1:8888/callback` (NOT localhost — removed Nov 2025)
-- **APIs:** Check both **Web API** and **Web Playback SDK**
-- **User Management:** User MUST add their Spotify email in Settings > User Management (even as app owner). Without this, playlist writes return 403 Forbidden.
+### Container / Web UI path (recommended)
+1. User creates Spotify app at https://developer.spotify.com/dashboard
+   - **Redirect URI:** `http://<NAS-IP>:8080/callback` (use the NAS's actual LAN IP)
+   - **APIs:** Check both **Web API** and **Web Playback SDK**
+   - **User Management:** Add Spotify email (even as app owner) — otherwise 403 Forbidden
+2. Copy `nas-deployment.example.yaml` to `docker-compose.yml`, fill in `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`, `SPOTIFY_REDIRECT_URI`
+3. Run `docker compose up -d --build`
+4. Open `http://<NAS-IP>:8080` → Setup Wizard guides through the rest (3 steps, Spotify OAuth in browser)
 
-### 2. Create config.yaml
-Copy from `config.example.yaml` and fill in:
-- `spotify.client_id` and `spotify.client_secret` from the Dashboard
-- `playlist_id` — user creates an empty playlist in Spotify, shares link, extract ID
-- `podcasts` — user shares Spotify show links, extract IDs
-- `music` — configure top_tracks, genres, and/or source playlists
+### CLI / headless path (advanced)
+1. Create Spotify app with **Redirect URI:** `http://127.0.0.1:8080/callback` (or 8888 if using old setup.js)
+2. Set env vars OR create `config.yaml` from `config.example.yaml`
+3. If on SSH/headless: `ssh -L 8080:127.0.0.1:8080 user@server`
+4. Run `npm run setup` — legacy CLI flow
+5. Token saved to `DATA_DIR/.spotify-token.json`
 
 ### 3. OAuth Authentication
-- If on SSH/headless: user needs SSH tunnel: `ssh -L 8888:127.0.0.1:8888 user@server`
-- Run `npm run setup` — it deletes any old token and starts fresh OAuth flow
-- User opens the printed URL in their local browser and approves
-- Token saved to `.spotify-token.json`
+- Container: handled by web UI Setup Wizard at `/setup`
+- CLI legacy: `npm run setup` prints URL, user approves in browser
 
 ### 4. Test and Run
 - `npm test` — dry run to verify everything works

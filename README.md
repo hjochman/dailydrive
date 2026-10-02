@@ -1,12 +1,16 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/patdeg/dailydrive/main/img/dailydrive.jpg" alt="My Daily Drive" width="300">
+  <img src="img/bob/ibm-bob.webp" alt="IBM Bob" width="100">
+  <br>
+  <img src="img/dailydrive.jpg" alt="My Daily Drive" width="300">
 </p>
 
-# Daily Drive
+# Daily Drive by IBM Bob
 
 **Bring back Spotify's Daily Drive — your personal mix of podcasts and music, updated automatically.**
 
-Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/Is-Daily-Drive-gone/td-p/7377710) on March 17, 2026. This project brings it back. It runs on any Linux machine and automatically refreshes a Spotify playlist with your podcasts interleaved with music.
+Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/Is-Daily-Drive-gone/td-p/7377710) on March 17, 2026. This project brings it back. It runs on any Linux machine **or inside a container on a Synology NAS**, and automatically refreshes a Spotify playlist with your podcasts interleaved with music.
+
+> **New in v2.0:** A full Web UI (built with IBM Bob 🤖) guides you through setup, lets you edit all configuration, and runs the playlist on a configurable schedule — no CLI required. Deploy with one `docker compose up`.
 
 [**Listen to a live example**](https://open.spotify.com/playlist/34nCFkIuIkiFF4W5dJKiTi) — updated twice daily with NPR News, The Journal, Freakonomics, and a mix of top tracks and genre discovery.
 
@@ -14,7 +18,90 @@ Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/I
 
 ---
 
-## Setup Guide
+> 🔒 **Security Notice:** Daily Drive is designed for use **inside a trusted LAN behind a firewall only**. The web UI has no authentication — anyone on your network can access it. **Never expose port 8080 (or any other Daily Drive port) directly to the internet.**
+
+---
+
+## 🐳 Container Deployment (NAS / Docker) — Recommended
+
+The easiest way to run Daily Drive is as a container with a web UI. Works on Synology NAS, any Linux server, or your local machine.
+
+### Quick Start (3 commands)
+
+```bash
+git clone https://github.com/hjochman/dailydrive.git
+cd dailydrive
+docker compose up -d --build
+```
+
+Open **http://localhost:8080** (or `http://<NAS-IP>:8080`) and follow the Setup Wizard — it guides you through everything, including Spotify credentials and OAuth.
+
+### Environment Variables
+
+Only two variables need to be set. Everything else (Spotify credentials, playlist, podcasts) is configured through the Web UI and stored in `config.yaml`.
+
+| Variable | Default | Description |
+|---|---|---|
+| `WEB_PORT` | `8080` | Port the web UI listens on |
+| `DATA_DIR` | `/data` | Volume mount path inside the container |
+| `SHOW_LAN_WARNING` | `true` | Show the LAN-only security banner in the web UI. Set to `false` to hide it once you've acknowledged the risk. |
+
+### Synology NAS — Step by Step
+
+1. **SSH into your NAS** and create the data directory:
+   ```bash
+   mkdir -p /volume1/docker/dailydrive/data
+   ```
+
+2. **Copy the deployment template** to your NAS:
+   ```bash
+   cp nas-deployment.example.yaml docker-compose.yml
+   ```
+   Adjust the volume path to match your NAS (`/volume1/...`) and the port if 8080 is already in use.
+
+3. **Build and start** the container:
+   ```bash
+   docker compose up -d --build
+   ```
+   Or import `docker-compose.yml` via **Container Manager → Project → Create → Import file**.
+
+4. **Open the Web UI:** `http://<NAS-IP>:8080`
+
+5. **Follow the Setup Wizard** — 3 steps:
+   - Step 1: Create a Spotify Developer App and enter Client ID + Secret
+   - Step 2: Authorize Daily Drive with your Spotify account
+   - Step 3: Select your target playlist and podcasts
+
+6. **Done!** The playlist refreshes automatically every 24 hours (at 04:00). Change the interval under Config → Refresh interval.
+
+> ⚠️ **Important:** During Step 1 of the Setup Wizard, you must enter the Redirect URI shown on screen **exactly** in your Spotify Developer Dashboard → App → Settings → Redirect URIs. Use your NAS's LAN IP, not `localhost`.
+
+### Web UI Pages
+
+| Page | URL | Description |
+|---|---|---|
+| Dashboard | `/` | Status, last refresh, manual trigger, playlist link |
+| Setup Wizard | `/setup` | Guided 3-step Spotify OAuth setup |
+| Configuration | `/config` | Edit all parameters — credentials, podcasts, music, schedule |
+| Logs | `/logs` | Last 200 lines of today's log file |
+| About | `/about` | Version info, credits, tech stack |
+
+### Volume Mount — Persistent Files
+
+All runtime data is stored in `/data` (mapped to your host directory):
+
+| File | Description |
+|---|---|
+| `config.yaml` | Your configuration (written by the web UI) |
+| `.spotify-token.json` | Spotify OAuth tokens (auto-refreshed) |
+| `state.json` | Playlist state cache |
+| `logs/YYYY-MM-DD.log` | Daily log files |
+
+---
+
+## Setup Guide (CLI / Advanced)
+
+For headless servers, SSH-only machines, or users who prefer the command line.
 
 ### Step 1: Create a Spotify Developer App
 
@@ -25,7 +112,7 @@ This tells Spotify your script is allowed to manage your playlists. It's free an
 3. Fill in the form:
    - **App name:** `Daily Drive` (or anything)
    - **App description:** `Personal playlist tool` (or anything)
-   - **Redirect URI:** type in exactly: `http://127.0.0.1:8888/callback` then click **Add**
+   - **Redirect URI:** type in exactly: `http://127.0.0.1:8080/callback` then click **Add**
    - Check both **Web API** and **Web Playback SDK**
 4. Click **"Save"**
 
@@ -81,17 +168,17 @@ Some popular ones to get you started:
 
 ```bash
 # Get the code
-git clone https://github.com/patdeg/dailydrive.git
+git clone https://github.com/hjochman/dailydrive.git
 cd dailydrive
 
-# Run the installer (installs Node.js if needed + dependencies)
-chmod +x install.sh
-./install.sh
+# Install dependencies
+npm install
 ```
 
-Now edit your config file:
+Now create and edit your config file:
 
 ```bash
+cp config.example.yaml config.yaml
 nano config.yaml
 ```
 
@@ -109,7 +196,7 @@ This prints a URL. Open it in your browser, log into Spotify, and click **Agree*
 
 > **On a headless server (SSH, no monitor)?** Connect with port forwarding first:
 > ```bash
-> ssh -L 8888:127.0.0.1:8888 user@your-server
+> ssh -L 8080:127.0.0.1:8080 user@your-server
 > ```
 > Then run `npm run setup` on the server, and open the URL in your **local** browser.
 
@@ -127,7 +214,7 @@ Open Spotify — your playlist is now filled with a fresh mix of podcasts and mu
 
 ## Personalizing Your Music Mix
 
-This is where you make it yours. Edit `config.yaml` to control what music goes in.
+This is where you make it yours. Edit `config.yaml` (or use the web UI Config page) to control what music goes in.
 
 ### Your Top Tracks (on by default)
 
@@ -192,7 +279,7 @@ podcasts:
 
 ---
 
-## Run It Automatically
+## Run It Automatically (CLI mode)
 
 Set up a cron job so your playlist refreshes on its own:
 
@@ -208,14 +295,17 @@ Add this line (refreshes at 4 AM and 4 PM daily):
 
 That's it — your Daily Drive is back on autopilot.
 
+> When running as a container, scheduling is built in — no cron needed.
+
 ---
 
 ## Commands Reference
 
 | Command | What it does |
 |---------|-------------|
-| `npm run setup` | Log in to Spotify (one time, or if token expires) |
-| `npm start` | Build/refresh the playlist now |
+| `npm run start:server` | Start the web UI + scheduler (container mode) |
+| `npm run setup` | CLI OAuth login (headless / advanced) |
+| `npm start` | Build/refresh the playlist now (CLI) |
 | `npm test` | Dry run — shows what would happen without changing anything |
 | `npm run taste` | Auto-detect your music genres using AI (Demeterics) |
 | `npm run taste:google` | Auto-detect your music genres using AI (Google Gemini — free) |
@@ -226,10 +316,10 @@ That's it — your Daily Drive is back on autopilot.
 
 | Problem | Fix |
 |---------|-----|
-| `Not authenticated!` | Run `npm run setup` |
+| `Not authenticated!` | Run `npm run setup` (CLI) or re-run the Setup Wizard |
 | `config.yaml not found!` | Run `cp config.example.yaml config.yaml` and edit it |
-| `Token expired` | Run `npm run setup` again |
-| `403 Forbidden` | Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) → your app → Settings → User Management → add your Spotify email. Then re-run `npm run setup` |
+| `Token expired` | Run `npm run setup` again, or use the Setup Wizard |
+| `403 Forbidden` | Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) → your app → Settings → User Management → add your Spotify email. Then re-authorize. |
 | `404 Not Found` | Double-check your podcast/playlist IDs in config.yaml |
 | Playlist is empty after running | Run `npm test` to see if podcasts/playlists are returning results |
 
@@ -281,13 +371,36 @@ Uses the [Demeterics](https://demeterics.ai) API — an LLM observability platfo
 
 ## How It Works
 
-1. **Auth:** OAuth 2.0 — `setup.js` runs a local server, you log in via browser, tokens are saved and auto-refresh
+1. **Auth:** OAuth 2.0 — Setup Wizard (or `setup.js` for CLI) runs a local server, you log in via browser, tokens are saved and auto-refresh
 2. **Podcasts:** Fetches latest episodes from each show via Spotify API
 3. **Music:** Pulls from your top tracks, genre search, and/or playlists — pools, shuffles, and trims
 4. **Mix:** Pins episodes marked `position: first`, then interleaves the rest using your mix pattern
 5. **Update:** Replaces the playlist contents via the Spotify API
 
 The script caches state in `state.json` — if nothing changed since last run, it skips the update. Delete `state.json` to force a refresh.
+
+---
+
+## Project Structure (v2.0)
+
+```
+server.js           — Web server & scheduler (container entrypoint)
+index.js            — Playlist builder logic (called by server or CLI)
+paths.js            — Centralised path & credential resolution
+token-manager.js    — Spotify token refresh daemon
+setup.js            — CLI-only OAuth setup (legacy / headless)
+views/              — EJS templates for the Web UI
+public/             — Static assets (CSS, i18n JSON, Bob images)
+  style.css         — IBM dark theme styles
+  lang.js           — DE/EN language switcher
+  i18n/de.json      — German UI strings
+  i18n/en.json      — English UI strings
+  img/bob/          — IBM Bob logo and illustrations
+Dockerfile          — Red Hat UBI9 container image
+docker-compose.yml  — Local development compose file
+nas-deployment.example.yaml — Synology NAS deployment template
+config.example.yaml — Config template (for CLI usage)
+```
 
 ---
 
@@ -304,8 +417,13 @@ This project brings it back — but better, because *you* control exactly what g
 PRs welcome — especially for:
 - Additional music sources (liked songs, recently played, etc.)
 - Multiple playlist support
-- Web dashboard
-- Docker support
+- Extended web dashboard features
+
+## Credits
+
+This project was built with the help of **[IBM Bob](https://www.ibm.com/products/ibm-bob)** 🤖 — IBM's AI coding assistant.
+
+Original CLI project by **[patdeg](https://github.com/patdeg/dailydrive)**. This fork maintained at **[hjochman/dailydrive](https://github.com/hjochman/dailydrive)**.
 
 ## License
 

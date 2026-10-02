@@ -1,0 +1,33 @@
+# Dependencies & build artifacts
+node_modules/
+npm-debug.log*
+
+# Runtime secrets & data — NEVER bake into the image
+config.yaml
+.spotify-token.json
+.env
+state.json
+data/
+
+# Logs
+logs/
+*.log
+
+# Git & CI
+.git/
+.gitignore
+.github/
+
+# Documentation (not needed in image)
+*.md
+AGENTS.md
+CLAUDE.md
+GEMINI.md
+
+# Development / plan files
+*-plan.md
+scripts/
+systemd/
+
+# macOS
+.DS_Store

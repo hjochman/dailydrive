@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= title %> — Daily Drive by IBM Bob</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- Favicons & platform icons -->
+  <link rel="icon" type="image/png" sizes="32x32" href="/img/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/img/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/img/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#0f62fe">
+  <meta name="msapplication-TileColor" content="#0f62fe">
+  <meta name="msapplication-TileImage" content="/img/icon-192.png">
+</head>
+<body>
+
+<!-- ===== Drawer Backdrop ===== -->
+<div class="drawer-backdrop" id="drawerBackdrop"></div>
+
+<!-- ===== Slide-in Navigation Drawer ===== -->
+<nav class="nav-drawer" id="navDrawer" aria-label="Main navigation">
+  <div class="nav-drawer-header">
+    <span class="nav-drawer-title" data-i18n="site_title">Daily Drive by IBM Bob</span>
+    <button class="nav-close-btn" id="navCloseBtn" aria-label="Close navigation">&#x2715;</button>
+  </div>
+  <div class="nav-drawer-links">
+    <a href="/"       data-i18n="nav_dashboard" class="nav-link <%= page==='dashboard' ? 'active' : '' %>">
+      <span class="nav-link-icon">&#9638;</span>Dashboard
+    </a>
+    <a href="/setup"  data-i18n="nav_setup"     class="nav-link <%= page==='setup'     ? 'active' : '' %>">
+      <span class="nav-link-icon">&#9874;</span>Setup
+    </a>
+    <a href="/config" data-i18n="nav_config"    class="nav-link <%= page==='config'    ? 'active' : '' %>">
+      <span class="nav-link-icon">&#9881;</span>Config
+    </a>
+    <a href="/logs"   data-i18n="nav_logs"      class="nav-link <%= page==='logs'      ? 'active' : '' %>">
+      <span class="nav-link-icon">&#9741;</span>Logs
+    </a>
+    <a href="/about"  data-i18n="nav_about"     class="nav-link <%= page==='about'     ? 'active' : '' %>">
+      <span class="nav-link-icon">&#9432;</span>About
+    </a>
+  </div>
+</nav>
+
+<!-- ===== Sticky Topbar ===== -->
+<header class="site-topbar">
+  <button class="hamburger-btn" id="hamburgerBtn" aria-label="Open navigation" aria-expanded="false" aria-controls="navDrawer">
+    <span></span><span></span><span></span>
+  </button>
+  <a href="/" class="topbar-title" data-i18n="site_title">Daily Drive by IBM Bob</a>
+  <div class="topbar-right">
+    <button class="lang-btn" data-lang="de" onclick="DDLang.switch('de')">DE</button>
+    <button class="lang-btn" data-lang="en" onclick="DDLang.switch('en')">EN</button>
+  </div>
+</header>
+
+<!-- ===== Bob Banner ===== -->
+<div class="bob-banner">
+  <div class="bob-banner-glow"></div>
+  <img src="/img/bob/ibm-bob.gif" alt="IBM Bob" class="bob-banner-img">
+  <div class="bob-banner-text">
+    <strong data-i18n="site_title">Daily Drive by IBM Bob</strong>
+    <small data-i18n="banner_tagline">Your automated podcast &amp; music playlist</small>
+  </div>
+</div>
+
+<!-- ===== LAN Warning Banner ===== -->
+<% if (showLanWarning) { %>
+<div class="lan-warning-banner">
+  <span data-i18n="lan_warning">Nur im gesicherten LAN hinter einer Firewall betreiben – niemals direkt ins Internet exponieren!</span>
+  <span class="lan-warning-icon">⚠️</span>
+</div>
+<% } %>
+
+<!-- ===== Content ===== -->
+<main class="main-content">
+  <%- body %>
+</main>
+
+<!-- ===== Footer ===== -->
+<footer class="site-footer">
+  <span data-i18n="footer_made_by">Created with</span>
+  <a href="https://www.ibm.com/products/ibm-bob" target="_blank" rel="noopener" class="footer-bob-link">
+    <img src="/img/bob/ibm-bob.webp" alt="IBM Bob">
+    <strong>IBM Bob</strong>
+  </a>
+  &nbsp;·&nbsp;
+  <span data-i18n="footer_original">Original project by</span>
+  <a href="https://github.com/hjochman/dailydrive" target="_blank" rel="noopener">
+    <span data-i18n="footer_original_author">hjochman</span>
+  </a>
+</footer>
+
+<script src="/lang.js"></script>
+<script>
+  (function () {
+    var btn      = document.getElementById('hamburgerBtn');
+    var drawer   = document.getElementById('navDrawer');
+    var backdrop = document.getElementById('drawerBackdrop');
+    var closeBtn = document.getElementById('navCloseBtn');
+
+    function openDrawer() {
+      drawer.classList.add('open');
+      backdrop.classList.add('visible');
+      btn.setAttribute('aria-expanded', 'true');
+      closeBtn.focus();
+    }
+
+    function closeDrawer() {
+      drawer.classList.remove('open');
+      backdrop.classList.remove('visible');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.focus();
+    }
+
+    btn.addEventListener('click', openDrawer);
+    closeBtn.addEventListener('click', closeDrawer);
+    backdrop.addEventListener('click', closeDrawer);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && drawer.classList.contains('open')) closeDrawer();
+    });
+  })();
+</script>
+</body>
+</html>

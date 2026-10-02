@@ -1,0 +1,1074 @@
+/* =============================================================================
+   Daily Drive by IBM Bob — Global Styles
+   IBM Design Language + Dark Theme
+   ============================================================================= */
+
+:root {
+  --bg:          #000000;
+  --surface:     #161616;
+  --surface-2:   #262626;
+  --border:      #393939;
+  --text:        #f4f4f4;
+  --text-muted:  #8d8d8d;
+  --accent:      #0f62fe;
+  --accent-hover:#0353e9;
+  --green:       #24a148;
+  --yellow:      #f1c21b;
+  --red:         #da1e28;
+  --spotify:     #1DB954;
+  --radius:      4px;
+  --font:        -apple-system, "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 15px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* =============================================================================
+   Drawer Backdrop
+   ============================================================================= */
+.drawer-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 199;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.drawer-backdrop.visible {
+  display: block;
+  opacity: 1;
+}
+
+/* =============================================================================
+   Navigation Drawer (Slide-in)
+   ============================================================================= */
+.nav-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 260px;
+  background: #0d0d0d;
+  border-right: 1px solid var(--border);
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow-y: auto;
+}
+
+.nav-drawer.open {
+  transform: translateX(0);
+}
+
+.nav-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.nav-drawer-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.nav-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius);
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-close-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.nav-drawer-links {
+  padding: 0.75rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.6rem 0.85rem;
+  color: var(--text-muted);
+  text-decoration: none;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  transition: color 0.15s, background 0.15s;
+}
+
+.nav-link:hover {
+  color: var(--text);
+  background: var(--surface-2);
+  text-decoration: none;
+}
+
+.nav-link.active {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.nav-link-icon {
+  font-size: 0.9rem;
+  min-width: 1rem;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.nav-link.active .nav-link-icon {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* =============================================================================
+   Sticky Topbar
+   ============================================================================= */
+.site-topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 1rem;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.hamburger-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex-shrink: 0;
+  border-radius: var(--radius);
+  transition: background 0.15s;
+}
+
+.hamburger-btn:hover {
+  background: var(--surface-2);
+}
+
+.hamburger-btn span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--text-muted);
+  border-radius: 1px;
+  transition: background 0.15s;
+}
+
+.hamburger-btn:hover span {
+  background: var(--text);
+}
+
+.topbar-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-title:hover {
+  text-decoration: none;
+  color: var(--text);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.lang-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.lang-btn:hover,
+.lang-btn.active {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* =============================================================================
+   Bob Banner
+   ============================================================================= */
+.bob-banner {
+  background: #080f1c;
+  border-bottom: 1px solid #1e2d48;
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.1rem;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.bob-banner-glow {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 60% 130% at 50% 110%, rgba(15, 98, 254, 0.22) 0%, transparent 65%),
+    radial-gradient(ellipse 30% 60% at 50% 0%, rgba(255,255,255,0.03) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.bob-banner-img {
+  height: 76px;
+  width: auto;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+}
+
+.bob-banner-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.bob-banner-text strong {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.bob-banner-text small {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.06em;
+}
+
+.lan-warning-banner {
+  background: #3d2900;
+  border-bottom: 2px solid #f1c21b;
+  color: #f1c21b;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 0.55rem 1rem;
+  letter-spacing: 0.01em;
+}
+
+.lan-warning-icon {
+  margin-right: 0.4rem;
+}
+
+/* =============================================================================
+   Main Content
+   ============================================================================= */
+.main-content {
+  flex: 1;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+h1 { font-size: 1.75rem; font-weight: 600; margin-bottom: 1.5rem; }
+h2 { font-size: 1.25rem; font-weight: 600; margin-bottom: 1rem; }
+h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
+
+/* =============================================================================
+   Cards / Panels
+   ============================================================================= */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.card-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+/* =============================================================================
+   Status badges
+   ============================================================================= */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 12px;
+  font-weight: 500;
+}
+
+.badge-ok      { background: rgba(36,161,72,.18); color: var(--green); }
+.badge-warn    { background: rgba(241,194,27,.15); color: var(--yellow); }
+.badge-error   { background: rgba(218,30,40,.15); color: var(--red); }
+
+.badge::before { content: "●"; font-size: 0.6rem; }
+
+/* =============================================================================
+   Checklist
+   ============================================================================= */
+.checklist { list-style: none; }
+.checklist li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.checklist li:last-child { border-bottom: none; }
+.checklist li.done { color: var(--text); }
+.check-icon { font-size: 1rem; min-width: 1.2rem; text-align: center; }
+
+/* =============================================================================
+   Stat row (dashboard)
+   ============================================================================= */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.stat-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+}
+
+.stat-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.stat-value {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+/* =============================================================================
+   Buttons
+   ============================================================================= */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn-primary  { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); text-decoration: none; }
+
+.btn-spotify  { background: var(--spotify); color: #000; }
+.btn-spotify:hover { background: #1aa34a; text-decoration: none; }
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.btn-ghost:hover { border-color: var(--text-muted); color: var(--text); text-decoration: none; }
+
+.btn-danger { background: var(--red); color: #fff; }
+.btn-danger:hover { background: #b81922; text-decoration: none; }
+
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.btn-row {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+/* =============================================================================
+   Forms
+   ============================================================================= */
+.form-group { margin-bottom: 1.25rem; }
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="number"],
+input[type="url"],
+textarea,
+select {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  padding: 0.55rem 0.8rem;
+  font-size: 0.9rem;
+  font-family: var(--font);
+  transition: border-color 0.15s;
+  appearance: none;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+textarea { resize: vertical; min-height: 100px; }
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.3rem;
+}
+
+.copy-block {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.copy-block input { font-family: monospace; font-size: 0.85rem; }
+
+.btn-copy {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.45rem 0.65rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  transition: color 0.15s;
+}
+.btn-copy:hover { color: var(--text); }
+
+/* =============================================================================
+   Podcast / Playlist list entries
+   ============================================================================= */
+.item-list { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.item-entry {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.75rem 1rem;
+  display: grid;
+  grid-template-columns: 1fr 1fr auto auto auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+/* Podcast entries get an extra drag-handle column on the left */
+.item-entry.draggable {
+  grid-template-columns: auto 1fr 1fr auto auto auto;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 1rem;
+  padding: 0.2rem 0.3rem;
+  border-radius: var(--radius);
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.drag-handle:hover { color: var(--text); }
+.drag-handle:active { cursor: grabbing; }
+
+/* When a podcast entry is shown in the pinned preview slot, hide the drag handle */
+#pinned-podcast-preview .drag-handle { display: none; }
+#pinned-podcast-preview .item-entry.draggable { grid-template-columns: 1fr 1fr auto auto auto; }
+
+.item-entry.drag-over {
+  border-color: var(--accent);
+  background: rgba(15, 98, 254, 0.08);
+}
+
+.item-entry.dragging {
+  opacity: 0.4;
+}
+
+.item-entry .item-pin {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Pin-radio rows: same visual style as item-entry but smaller, radio-friendly layout */
+.item-entry.pin-radio-row {
+  grid-template-columns: auto 1fr auto auto auto;
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.item-entry.pin-radio-row input[type="radio"] {
+  cursor: pointer;
+  accent-color: var(--accent);
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+.item-entry.pin-radio-row:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+.item-entry.pin-radio-selected {
+  border-color: var(--accent);
+  background: rgba(15, 98, 254, 0.06);
+}
+.item-entry.pin-radio-selected:hover {
+  background: rgba(15, 98, 254, 0.1);
+}
+
+.btn-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-remove:hover { color: var(--red); border-color: var(--red); }
+
+/* =============================================================================
+   Setup Wizard
+   ============================================================================= */
+.wizard-layout {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 2rem;
+  align-items: start;
+}
+
+.wizard-bob {
+  position: sticky;
+  top: 72px;
+  text-align: center;
+}
+
+.wizard-bob img {
+  width: 100%;
+  max-width: 200px;
+  border-radius: 8px;
+  filter: drop-shadow(0 0 24px rgba(15,98,254,0.35));
+}
+
+.wizard-bob .bob-caption {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.5rem;
+  font-style: italic;
+}
+
+.steps-indicator {
+  display: flex;
+  gap: 0;
+  margin-bottom: 2rem;
+}
+
+.step-pill {
+  flex: 1;
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+}
+
+.step-pill.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.step-pill.done {
+  color: var(--green);
+  border-bottom-color: var(--green);
+}
+
+.step-panel { display: none; }
+.step-panel.active { display: block; }
+
+.hint-list {
+  list-style: none;
+  margin: 1rem 0;
+}
+
+.hint-list li {
+  padding: 0.4rem 0;
+  padding-left: 1.4rem;
+  position: relative;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.hint-list li:last-child { border-bottom: none; }
+
+.hint-list li::before {
+  content: "→";
+  position: absolute;
+  left: 0;
+  color: var(--accent);
+}
+
+.redirect-uri-box {
+  background: var(--surface-2);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 0.6rem 1rem;
+  font-family: monospace;
+  font-size: 0.9rem;
+  color: var(--accent);
+  margin: 0.75rem 0;
+  word-break: break-all;
+}
+
+/* =============================================================================
+   Log viewer
+   ============================================================================= */
+.log-output {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem;
+  font-family: "IBM Plex Mono", "Fira Code", monospace;
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #a8c7fa;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+/* =============================================================================
+   Alert / Flash messages
+   ============================================================================= */
+.alert {
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+  border-left: 3px solid;
+}
+
+.alert-success { background: rgba(36,161,72,.12); border-color: var(--green); color: #6ee7a0; }
+.alert-error   { background: rgba(218,30,40,.12); border-color: var(--red);   color: #ff8389; }
+.alert-warn    { background: rgba(244,160,0,.12); border-color: #f4a000;      color: #f0b429; }
+.alert-info    { background: rgba(15,98,254,.12); border-color: var(--accent); color: #78a9ff; }
+
+/* =============================================================================
+   Footer
+   ============================================================================= */
+.site-footer {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  padding: 1rem 1.5rem;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.site-footer img {
+  height: 18px;
+  vertical-align: middle;
+}
+
+.footer-bob-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.footer-bob-link:hover {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.footer-bob-link strong {
+  color: inherit;
+}
+
+/* =============================================================================
+   Current Playlist Table
+   ============================================================================= */
+.playlist-table-container {
+  overflow-x: auto;
+  margin-top: 0.5rem;
+}
+
+.playlist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+.playlist-table th {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 2px solid var(--border);
+}
+
+.playlist-table td {
+  padding: 0.75rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.playlist-row:hover {
+  background: var(--surface-2);
+}
+
+.playlist-row.episode {
+  background: rgba(15, 98, 254, 0.03);
+}
+
+.playlist-row.episode:hover {
+  background: rgba(15, 98, 254, 0.08);
+}
+
+.playlist-track-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+}
+
+.playlist-icon {
+  font-size: 1rem;
+}
+
+.playlist-artist-name {
+  color: var(--text-muted);
+}
+
+.playlist-row.episode .playlist-track-name {
+  color: #a8c7fa; /* Highlight podcasts slightly in a nice light blue */
+}
+
+/* =============================================================================
+   Spotify Picker Modal
+   ============================================================================= */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.modal.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  width: 90%;
+  max-width: 600px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  max-height: 85vh;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.modal-close:hover {
+  color: var(--text);
+}
+
+.picker-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+
+.picker-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.5rem 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.picker-tab:hover,
+.picker-tab.active {
+  color: var(--text);
+}
+
+.picker-tab.active {
+  border-bottom-color: var(--accent);
+}
+
+.picker-search-bar {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.picker-loading {
+  padding: 2rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.picker-empty {
+  text-align: center;
+  padding: 2rem;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.picker-results-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  margin-top: 1rem;
+  padding-right: 0.25rem;
+}
+
+.picker-result-card {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.picker-result-card:hover {
+  background: rgba(15, 98, 254, 0.05);
+  border-color: var(--accent);
+}
+
+.picker-result-card img {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.picker-result-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-result-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-result-subtext {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.picker-result-card .select-btn {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  pointer-events: none; /* Let the card click handle the selection */
+}
+
+.picker-result-disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.picker-result-disabled:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+}
+
+.picker-result-disabled .select-btn {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.picker-foreign-warning {
+  font-size: 0.75rem;
+  color: #f1c21b;
+  margin-top: 0.2rem;
+}
+
+/* Spinner Animation */
+.spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255,255,255,0.1);
+  border-radius: 50%;
+  border-top-color: var(--accent);
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* =============================================================================
+   Responsive
+   ============================================================================= */
+@media (max-width: 640px) {
+  .wizard-layout { grid-template-columns: 1fr; }
+  .wizard-bob { display: none; }
+  .item-entry { grid-template-columns: 1fr 1fr; }
+  .stat-row { grid-template-columns: 1fr 1fr; }
+
+  /* Bob Banner kompakter auf Smartphones */
+  .bob-banner { height: 68px; gap: 0.75rem; }
+  .bob-banner-img { height: 58px; }
+  .bob-banner-text strong { font-size: 0.88rem; }
+  .bob-banner-text small { display: none; }
+}

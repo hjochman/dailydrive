@@ -18,10 +18,11 @@ const fs = require("fs");
 const yaml = require("js-yaml");               // Parses YAML config files
 const SpotifyWebApi = require("spotify-web-api-node"); // Wraps the Spotify Web API
 
-// --- File paths used by the script ---
-const TOKEN_FILE = ".spotify-token.json";  // Stores your Spotify OAuth tokens (created by setup.js)
-const CONFIG_FILE = "config.yaml";         // Your configuration (podcasts, music, schedule, etc.)
-const STATE_FILE = "state.json";           // Caches last run's episode URIs to detect changes
+// --- Centralised path & credential resolution ---
+const { PATHS, resolveSpotifyCredentials } = require("./paths");
+const TOKEN_FILE = PATHS.TOKEN_FILE;
+const CONFIG_FILE = PATHS.CONFIG_FILE;
+const STATE_FILE  = PATHS.STATE_FILE;
 
 // Check command-line flags
 const DRY_RUN = process.argv.includes("--dry-run");       // Shows what would happen without changing the playlist
@@ -32,34 +33,43 @@ const PODCAST_ONLY = process.argv.includes("--podcast-only"); // Hourly mode: on
 // =============================================================================
 
 /**
- * Loads and parses config.yaml. Exits with an error if the file doesn't exist.
- * This file contains your Spotify credentials, podcast list, music preferences, etc.
+ * Loads and parses config.yaml (from DATA_DIR).
+ * When SPOTIFY_CLIENT_ID is set via environment variable the config file is
+ * optional — env vars take precedence over any values in the file.
  */
 function loadConfig() {
-  if (!fs.existsSync(CONFIG_FILE)) {
-    console.error("❌ config.yaml not found! Run: cp config.example.yaml config.yaml");
-    process.exit(1);
+  let config = {};
+  if (fs.existsSync(CONFIG_FILE)) {
+    config = yaml.load(fs.readFileSync(CONFIG_FILE, "utf8")) || {};
+  } else if (!process.env.SPOTIFY_CLIENT_ID) {
+    const msg = "config.yaml not found and SPOTIFY_CLIENT_ID env var is not set.";
+    console.error("❌ " + msg);
+    if (require.main === module) process.exit(1);
+    throw new Error(msg);
   }
-  return yaml.load(fs.readFileSync(CONFIG_FILE, "utf8"));
+
+  // Merge env-var credentials (env vars take precedence over config file)
+  const creds = resolveSpotifyCredentials(config.spotify || {});
+  config.spotify = creds;
+  return config;
 }
 
-/**
- * Loads the saved OAuth token from disk. Exits if not found.
- * The token file is created when you run `npm run setup` for the first time.
- */
+// Token I/O and refresh delegated to token-manager.js
+const tokenManager = require("./token-manager");
+
 function loadToken() {
-  if (!fs.existsSync(TOKEN_FILE)) {
-    console.error("❌ Not authenticated! Run: npm run setup");
-    process.exit(1);
+  const token = tokenManager.loadToken();
+  if (!token) {
+    const msg = "Not authenticated — please re-authorize via the web UI.";
+    console.error("❌ " + msg);
+    if (require.main === module) process.exit(1);
+    throw new Error(msg);
   }
-  return JSON.parse(fs.readFileSync(TOKEN_FILE, "utf8"));
+  return token;
 }
 
-/**
- * Saves the OAuth token back to disk (called after a token refresh).
- */
 function saveToken(tokenData) {
-  fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokenData, null, 2));
+  tokenManager.saveToken(tokenData);
 }
 
 /**
@@ -96,28 +106,16 @@ function shuffle(array) {
 }
 
 /**
- * Spotify access tokens expire after 1 hour. This function checks if the token
- * is about to expire (within 5 minutes) and refreshes it automatically using
- * the long-lived refresh token. You don't need to re-authenticate manually.
+ * Refreshes the Spotify access token if expiring within 5 minutes.
+ * Delegates to token-manager; then syncs the refreshed token into spotifyApi.
  */
 async function refreshTokenIfNeeded(spotifyApi, token) {
-  if (Date.now() > token.expires_at - 5 * 60 * 1000) {
-    console.log("🔄 Refreshing access token...");
-    const data = await spotifyApi.refreshAccessToken();
-
-    // Update the token in memory
-    token.access_token = data.body.access_token;
-    token.expires_at = Date.now() + data.body.expires_in * 1000;
-
-    // Spotify sometimes rotates the refresh token too — save it if provided
-    if (data.body.refresh_token) {
-      token.refresh_token = data.body.refresh_token;
-    }
-
-    // Persist to disk and update the API client
-    saveToken(token);
+  const updated = await tokenManager.refreshTokenIfNeeded(5 * 60 * 1000);
+  if (updated && updated.access_token !== token.access_token) {
+    token.access_token = updated.access_token;
+    token.expires_at   = updated.expires_at;
+    if (updated.refresh_token) token.refresh_token = updated.refresh_token;
     spotifyApi.setAccessToken(token.access_token);
-    console.log("✅ Token refreshed");
   }
 }
 
@@ -209,9 +207,10 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
           const data = await res.json();
 
           for (const entry of data.items) {
-            // The /items endpoint returns the content in entry.item (not entry.track)
+            // The /items endpoint returns the content in entry.item
+            // Track detection: entry.item.track === true (not entry.item.type)
             const track = entry.item;
-            if (track && track.uri && track.type === "track") {
+            if (track && track.uri && track.track === true) {
               allTracks.push({
                 uri: track.uri,
                 name: track.name,
@@ -336,6 +335,35 @@ async function fetchGenreTracks(spotifyApi, genres, count) {
  * The pattern repeats cyclically. When one content type runs out, the remaining
  * items of the other type are appended at the end.
  */
+/**
+ * Interleaves podcast episodes round-robin across all shows.
+ * Input: flat array of episodes (grouped by show as returned by fetchPodcastEpisodes).
+ * Output: episodes alternating between shows, e.g. [A1, B1, C1, A2, B2, C2, ...].
+ */
+function alternateEpisodes(episodes) {
+  // Group episodes by show name, preserving original per-show order
+  const byShow = [];
+  const showIndex = new Map();
+  for (const ep of episodes) {
+    const key = ep.show || ep.uri;
+    if (!showIndex.has(key)) {
+      showIndex.set(key, byShow.length);
+      byShow.push([]);
+    }
+    byShow[showIndex.get(key)].push(ep);
+  }
+  // Round-robin interleave
+  if (byShow.length === 0) return [];
+  const result = [];
+  const maxLen = Math.max(...byShow.map(g => g.length));
+  for (let round = 0; round < maxLen; round++) {
+    for (const group of byShow) {
+      if (round < group.length) result.push(group[round]);
+    }
+  }
+  return result;
+}
+
 function mixContent(episodes, tracks, pattern) {
   const mixed = [];
   let episodeIndex = 0;
@@ -468,8 +496,10 @@ async function main() {
 
   // Step 4: Make sure the user has set a real playlist ID
   if (!config.playlist_id || config.playlist_id === "your-playlist-id-here") {
-    console.error("❌ Please set your playlist_id in config.yaml");
-    process.exit(1);
+    const msg = "Please set your playlist_id in config.yaml";
+    console.error("❌ " + msg);
+    if (require.main === module) process.exit(1);
+    throw new Error(msg);
   }
 
   // Step 5: Fetch the latest podcast episodes
@@ -486,7 +516,7 @@ async function main() {
   if (!DRY_RUN && PODCAST_ONLY && currentEpisodeUris === previousEpisodeUris && episodes.length > 0) {
     console.log("\n⏭️  No new podcast episodes detected. Playlist unchanged.");
     console.log("   (Same episodes as last update — skipping to avoid disruption)\n");
-    process.exit(0);
+    return;
   }
 
   // Step 7: Get music tracks
@@ -512,14 +542,16 @@ async function main() {
   }
 
   if (episodes.length === 0 && tracks.length === 0) {
-    console.error("❌ No content found! Check your config.yaml settings.");
-    process.exit(1);
+    const msg = "No content found — check your config and Spotify authorisation.";
+    console.error("❌ " + msg);
+    if (require.main === module) process.exit(1);
+    throw new Error(msg);
   }
 
   // Step 8: Separate pinned episodes (position: "first") from mixable ones
   // Pinned episodes go at the very top of the playlist, before the mix pattern starts
   const pinnedFirst = [];
-  const mixableEpisodes = [];
+  let mixableEpisodes = [];
   for (const ep of episodes) {
     if (ep.position === "first") {
       pinnedFirst.push(ep);
@@ -528,7 +560,13 @@ async function main() {
     }
   }
 
-  // Step 9: Mix podcasts and music according to the configured pattern
+  // Step 9: Optionally alternate episodes across podcasts (round-robin instead of sequential)
+  if (config.podcast_alternate && mixableEpisodes.length > 0) {
+    console.log("🔄 Alternating podcast episodes across shows (round-robin)");
+    mixableEpisodes = alternateEpisodes(mixableEpisodes);
+  }
+
+  // Step 10: Mix podcasts and music according to the configured pattern
   console.log(`\n🔀 Mixing with pattern: ${config.mix_pattern || "PMMM"}`);
   const mixed = [...pinnedFirst, ...mixContent(mixableEpisodes, tracks, config.mix_pattern)];
 
@@ -540,6 +578,14 @@ async function main() {
     const newState = {
       episode_uris: currentEpisodeUris,
       last_updated: new Date().toISOString(),
+      playlist_items: mixed.map(item => ({
+        uri: item.uri,
+        name: item.name,
+        type: item.type,
+        artist: item.type === "track" ? item.artist : null,
+        show: item.type === "episode" ? item.show : null,
+        duration_ms: item.duration_ms || null,
+      })),
     };
 
     if (PODCAST_ONLY) {
@@ -591,11 +637,16 @@ async function fetchAllMusicTracks(spotifyApi, config) {
   return tracks;
 }
 
-// Run the main function and handle any uncaught errors
-main().catch((err) => {
-  console.error("\n❌ Error:", err.message);
-  if (err.statusCode === 401) {
-    console.error("   Your token may have expired. Run: npm run setup\n");
-  }
-  process.exit(1);
-});
+// Export main() so server.js can call it programmatically.
+// When this file is run directly (CLI), also execute main() immediately.
+module.exports = { main };
+
+if (require.main === module) {
+  main().catch((err) => {
+    console.error("\n❌ Error:", err.message);
+    if (err.statusCode === 401) {
+      console.error("   Your token may have expired. Run: npm run setup\n");
+    }
+    process.exit(1);
+  });
+}

@@ -1,0 +1,29 @@
+# =============================================================================
+# Daily Drive by IBM Bob — Docker Compose
+# For local development and simple single-machine deployments.
+# For Synology NAS, use nas-deployment.example.yaml instead.
+# =============================================================================
+
+services:
+  dailydrive:
+    build: .
+    image: dailydrive:latest
+    container_name: dailydrive
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      # ── Web UI port (must match the left side of the ports mapping) ───────
+      WEB_PORT: ${WEB_PORT:-8080}
+
+      # ── Data directory inside the container (do not change) ──────────────
+      DATA_DIR: /data
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
