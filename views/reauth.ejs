@@ -1,0 +1,54 @@
+<h1 data-i18n="reauth_title">Re-authorize Spotify</h1>
+<p style="color:var(--text-muted);margin-bottom:1.5rem;font-size:.9rem" data-i18n="reauth_intro">Your Spotify token is no longer valid. Follow these steps to reconnect.</p>
+
+<% if (flash) { %>
+<div class="alert alert-<%= flash.type %>" style="margin-bottom:1.5rem"><%= flash.message %></div>
+<% } %>
+
+<div class="card">
+  <div class="nas-flow-card" style="border:1px solid var(--border);padding:1.25rem;border-radius:8px;background:rgba(15,98,254,.05)">
+    <h3 style="margin-top:0;font-size:1rem;color:#0f62fe;display:flex;align-items:center;gap:.5rem" data-i18n="setup_nas_mode_title">
+      🔗 Loopback Copy-Paste (NAS Mode)
+    </h3>
+    <p style="font-size:.85rem;line-height:1.4;color:var(--text-muted);margin-bottom:1rem" data-i18n="reauth_nas_desc">
+      Da deine NAS über HTTP erreichbar ist, musst du die Autorisierungs-URL manuell kopieren. Folge diesen Schritten:
+    </p>
+    <ol style="font-size:.85rem;color:var(--text);padding-left:1.25rem;margin-bottom:1.25rem;line-height:1.5">
+      <li>
+        <span data-i18n="setup_nas_step1">Stelle sicher, dass <code><%= loopbackRedirectUri %></code> in deinem Spotify Developer Dashboard als Redirect URI eingetragen ist.</span>
+      </li>
+      <li>
+        <span data-i18n="setup_nas_step2">Klicke auf den Button unten. Du wirst zu Spotify weitergeleitet.</span>
+      </li>
+      <li>
+        <span data-i18n="setup_nas_step3">Nach der Bestätigung landet dein Browser auf einer <strong>Fehlerseite</strong> (z.&nbsp;B. <em>„Site can't be reached"</em>).</span>
+      </li>
+      <li>
+        <span data-i18n="setup_nas_step4"><strong>Kopiere die vollständige URL</strong> aus der Adressleiste deines Browsers.</span>
+      </li>
+      <li>
+        <span data-i18n="setup_nas_step5">Kehre hierher zurück und füge die URL unten ein, um die Verbindung abzuschließen.</span>
+      </li>
+    </ol>
+
+    <div style="margin-bottom:1.25rem">
+      <a href="/setup/authorize?use_loopback=true" target="_blank" class="btn btn-spotify" style="font-size:.9rem;padding:.5rem 1.25rem;display:inline-block">
+        🎵 <span data-i18n="setup_nas_authorize_btn">Spotify-Autorisierung öffnen</span>
+      </a>
+    </div>
+
+    <form action="/setup/callback-paste" method="POST">
+      <div class="form-group" style="margin-bottom:.75rem">
+        <label for="callback_url" style="font-size:.8rem;font-weight:600" data-i18n="setup_nas_input_label">Weitergeleite URL einfügen</label>
+        <input type="text" id="callback_url" name="callback_url" required
+               placeholder="http://127.0.0.1:<%= new URL(loopbackRedirectUri).port || '8080' %>/callback?code=..."
+               style="width:100%">
+      </div>
+      <button type="submit" class="btn btn-primary" style="font-size:.85rem;padding:.5rem 1rem" data-i18n="setup_nas_submit_btn">Verbindung abschließen</button>
+    </form>
+  </div>
+</div>
+
+<div class="btn-row" style="margin-top:1rem">
+  <a href="/" class="btn btn-ghost" data-i18n="reauth_back_dash">Zurück zum Dashboard</a>
+</div>

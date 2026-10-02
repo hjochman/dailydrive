@@ -26,7 +26,13 @@ const { main: runRefresh, setLogger: setIndexLogger } = require("./index");
 // ---------------------------------------------------------------------------
 
 const WEB_PORT         = parseInt(process.env.WEB_PORT  || "8080", 10);
-const REFRESH_H        = parseInt(process.env.REFRESH_INTERVAL_HOURS || "24", 10);
+const REFRESH_INTERVAL_HOURS_DEFAULT = parseInt(process.env.REFRESH_INTERVAL_HOURS || "24", 10);
+// Priority: config.yaml > REFRESH_INTERVAL_HOURS env var > 24
+const getRefreshH = () => {
+  const fromConfig = loadConfig().refresh_interval;
+  if (fromConfig) return parseInt(fromConfig, 10);
+  return parseInt(process.env.REFRESH_INTERVAL_HOURS || String(REFRESH_INTERVAL_HOURS_DEFAULT), 10);
+};
 const SHOW_LAN_WARNING = process.env.SHOW_LAN_WARNING !== "false";
 
 // Ensure log directory exists (best-effort — may fail if the mounted /data
@@ -130,7 +136,7 @@ let _lastRefreshTime = null;
  */
 function nextRefreshString() {
   const now   = new Date();
-  const hours = Math.max(1, Math.min(168, REFRESH_H));
+  const hours = Math.max(1, Math.min(168, getRefreshH()));
   let next;
 
   if (hours === 24) {
@@ -540,6 +546,35 @@ app.post("/setup/callback-paste", async (req, res) => {
   }
 });
 
+// ── GET /reauth  Re-authorization page (NAS-aware) ───────────────────────────
+app.get("/reauth", (req, res) => {
+  const config      = loadConfig();
+  const creds       = resolveSpotifyCredentials(config.spotify || {});
+  const redirectUri = getRedirectUri(req);
+
+  let isLanHttp = false;
+  let loopbackRedirectUri = redirectUri;
+  try {
+    const u = new URL(redirectUri);
+    isLanHttp = u.protocol === "http:" && u.hostname !== "127.0.0.1" && u.hostname !== "localhost";
+    loopbackRedirectUri = `${u.protocol}//127.0.0.1${u.port ? ":" + u.port : ""}${u.pathname}`;
+  } catch (_) {}
+
+  if (!isLanHttp) {
+    // Direct flow: just kick off OAuth immediately
+    return res.redirect("/setup/authorize");
+  }
+
+  // NAS / LAN mode: show copy-paste instructions
+  render(res, "reauth", {
+    page:                "reauth",
+    title:               "Re-authorize Spotify",
+    redirectUri,
+    loopbackRedirectUri,
+    flash:               req.query.error ? { type: "error", message: req.query.error } : null,
+  });
+});
+
 // ── GET /setup/done  Show success page after playlist step ───────────────────
 app.get("/setup/done", (req, res) => {
   const config = loadConfig();
@@ -567,7 +602,7 @@ app.get("/config", (req, res) => {
     config,
     redirectUri:     process.env.SPOTIFY_REDIRECT_URI ||
                      `http://${req.headers.host}/callback`,
-    refreshInterval: REFRESH_H,
+    refreshInterval: config.refresh_interval || getRefreshH(),
     saved:           req.query.saved === "1",
     fromSetup:       req.query.setup === "1",
     flash:           configErrorFlash,
@@ -606,8 +641,9 @@ app.post("/config", (req, res) => {
       total_songs: parseInt(b.total_songs || "15", 10),
       shuffle:     b.shuffle === "1",
     },
-    mix_pattern: (b.mix_pattern || "PMMMM").trim().toUpperCase(),
-    schedule:    existing.schedule || {},
+    mix_pattern:      (b.mix_pattern || "PMMMM").trim().toUpperCase(),
+    refresh_interval: parseInt(b.refresh_interval, 10) || existing.refresh_interval || 24,
+    schedule:         existing.schedule || {},
   };
 
   // Podcasts
@@ -637,11 +673,14 @@ app.post("/config", (req, res) => {
     cfg.music.playlists.push({ id: id.trim(), name: (plNames[i] || "").trim() || id.trim() });
   });
 
+  const prevH = getRefreshH();
   saveConfig(cfg);
 
-  // If refresh interval changed, update env (runtime only)
-  if (b.refresh_interval) {
-    process.env.REFRESH_INTERVAL_HOURS = String(parseInt(b.refresh_interval, 10) || 24);
+  // Restart scheduler if refresh interval changed
+  const newH = cfg.refresh_interval;
+  if (newH !== prevH) {
+    process.env.REFRESH_INTERVAL_HOURS = String(newH);
+    startScheduler();
   }
 
   logLine("💾 Configuration saved via web UI");
@@ -867,10 +906,16 @@ app.get("/api/status", (req, res) => {
 // Scheduler
 // ---------------------------------------------------------------------------
 
+let _schedulerTask = null;
+
 function startScheduler() {
+  if (_schedulerTask) {
+    _schedulerTask.stop();
+    _schedulerTask = null;
+  }
   // Convert REFRESH_INTERVAL_HOURS to a cron expression
   // Simple approach: run every N hours at :00
-  const hours = Math.max(1, Math.min(168, REFRESH_H));
+  const hours = Math.max(1, Math.min(168, getRefreshH()));
 
   let cronExpr;
   if (hours === 24) {
@@ -886,7 +931,7 @@ function startScheduler() {
 
   logLine(`⏰ Scheduler starting — cron: "${cronExpr}" (every ${hours}h)`);
 
-  cron.schedule(cronExpr, async () => {
+  _schedulerTask = cron.schedule(cronExpr, async () => {
     if (_refreshRunning) {
       logLine("⏭️  Skipping scheduled refresh — already running");
       return;
@@ -912,7 +957,7 @@ function startScheduler() {
 app.listen(WEB_PORT, "0.0.0.0", () => {
   logLine(`🚀 Daily Drive by IBM Bob — Web UI started on port ${WEB_PORT}`);
   logLine(`   Data directory : ${PATHS.DATA_DIR}`);
-  logLine(`   Refresh every  : ${REFRESH_H} hour(s)`);
+  logLine(`   Refresh every  : ${getRefreshH()} hour(s)`);
 
   // Start background token refresh daemon (check every 30 min)
   tokenManager.startTokenRefreshDaemon(30 * 60 * 1000);

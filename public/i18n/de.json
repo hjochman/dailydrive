@@ -158,5 +158,10 @@
   "about_based_desc3": "Dieser Fork ergänzt eine Docker-basierte Web-UI, IBM Bob-Branding, einen OAuth-Assistenten und automatisches Playlist-Refresh.",
   "about_tech_title": "Technologien",
   "about_license": "Lizenz: MIT",
-  "about_logs_link": "Logs"
+  "about_logs_link": "Logs",
+
+  "reauth_title": "Spotify erneut autorisieren",
+  "reauth_intro": "Dein Spotify-Token ist nicht mehr gültig. Folge diesen Schritten, um Daily Drive neu zu verbinden.",
+  "reauth_nas_desc": "Da deine NAS über HTTP erreichbar ist, musst du die Autorisierungs-URL manuell kopieren und einfügen.",
+  "reauth_back_dash": "Zurück zum Dashboard"
 }

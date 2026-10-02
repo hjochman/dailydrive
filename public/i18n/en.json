@@ -158,5 +158,10 @@
   "about_based_desc3": "This fork adds a full Docker-based web UI, IBM Bob branding, an OAuth wizard and scheduled playlist refresh.",
   "about_tech_title": "Tech Stack",
   "about_license": "License: MIT",
-  "about_logs_link": "Logs"
+  "about_logs_link": "Logs",
+
+  "reauth_title": "Re-authorize Spotify",
+  "reauth_intro": "Your Spotify token is no longer valid. Follow these steps to reconnect Daily Drive.",
+  "reauth_nas_desc": "Since your NAS is accessed via HTTP, you need to manually copy and paste the authorization URL.",
+  "reauth_back_dash": "Back to Dashboard"
 }

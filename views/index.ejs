@@ -88,7 +88,7 @@
   <% if (!status.hasCredentials) { %>
     <a href="/setup" class="btn btn-primary" data-i18n="dash_go_setup">Go to Setup</a>
   <% } else if (!status.tokenValid) { %>
-    <a href="/setup/authorize" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
+    <a href="/reauth" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
       🎵 <span data-i18n="dash_reauth_btn">Re-authorize with Spotify</span>
     </a>
   <% } %>
