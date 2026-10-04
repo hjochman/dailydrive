@@ -4,22 +4,19 @@
 <div class="alert alert-<%= flash.type %>"><%= flash.message %></div>
 <% } %>
 
-<!-- Status / Checklist -->
-<div class="stat-row">
+<!-- Status -->
+<div class="stat-row-2">
   <div class="stat-box">
-    <div class="stat-label" data-i18n="dash_check_credentials">Credentials</div>
-    <div class="stat-value">
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_check_credentials">Credentials</span>
       <% if (status.hasCredentials) { %>
         <span class="badge badge-ok">OK</span>
       <% } else { %>
         <span class="badge badge-error" data-i18n="dash_status_no_config">Not configured</span>
       <% } %>
     </div>
-  </div>
-
-  <div class="stat-box">
-    <div class="stat-label" data-i18n="dash_check_token">Token</div>
-    <div class="stat-value">
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_check_token">Token</span>
       <% if (status.tokenValid) { %>
         <span class="badge badge-ok">OK</span>
       <% } else { %>
@@ -29,24 +26,22 @@
   </div>
 
   <div class="stat-box">
-    <div class="stat-label" data-i18n="dash_last_refresh">Last refresh</div>
-    <div class="stat-value" style="font-size:0.9rem">
-      <%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %>
+    <% if (status.tokenValid && status.expiresAt) { %>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_token_valid">Token valid until</span>
+      <span class="stat-date" data-timestamp="<%= status.expiresAt instanceof Date ? status.expiresAt.toISOString() : new Date(status.expiresAt).toISOString() %>"><%= status.expiresAt.toLocaleString() %></span>
+    </div>
+    <% } %>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_last_refresh">Last refresh</span>
+      <span class="stat-date" data-timestamp="<%= state.last_updated || '' %>"><%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %></span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_next_refresh">Next refresh</span>
+      <span class="stat-date" data-timestamp="<%= nextRefreshDate ? nextRefreshDate.toISOString() : '' %>"><%= nextRefresh %></span>
     </div>
   </div>
-
-  <div class="stat-box">
-    <div class="stat-label" data-i18n="dash_next_refresh">Next refresh</div>
-    <div class="stat-value" style="font-size:0.9rem"><%= nextRefresh %></div>
-  </div>
 </div>
-
-<% if (status.tokenValid && status.expiresAt) { %>
-<div class="card">
-  <div class="card-title" data-i18n="dash_token_valid">Token valid until</div>
-  <div><%= status.expiresAt.toLocaleString() %></div>
-</div>
-<% } %>
 
 <!-- Actions -->
 <div class="card">

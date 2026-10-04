@@ -188,7 +188,6 @@
           <img id="setup-playlist-img" src="" alt="" style="width:40px;height:40px;border-radius:4px;object-fit:cover;display:none">
           <div style="flex:1;min-width:0">
             <div id="setup-playlist-name" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= config.playlist_id || '' %></div>
-            <div id="setup-playlist-id" style="font-size:.75rem;color:var(--text-muted)"><%= config.playlist_id || '' %></div>
           </div>
           <button type="button" class="btn-remove" onclick="clearSetupPlaylist()" title="Remove">✕</button>
         </div>
@@ -238,7 +237,6 @@
 function setSetupPlaylist(id, name, image) {
   document.getElementById('playlist_url').value = id;
   document.getElementById('setup-playlist-name').textContent = name;
-  document.getElementById('setup-playlist-id').textContent = id;
   const img = document.getElementById('setup-playlist-img');
   if (image) { img.src = image; img.style.display = 'block'; }
   else { img.style.display = 'none'; }

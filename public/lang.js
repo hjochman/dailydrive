@@ -30,6 +30,21 @@
       }
     });
 
+    // Format timestamps based on the current active language (locale)
+    document.querySelectorAll("[data-timestamp]").forEach((el) => {
+      const ts = el.getAttribute("data-timestamp");
+      if (ts) {
+        try {
+          const date = new Date(ts);
+          if (!isNaN(date.getTime())) {
+            el.textContent = date.toLocaleString(currentLang());
+          }
+        } catch (e) {
+          console.error("i18n: Failed to format timestamp", ts, e);
+        }
+      }
+    });
+
     // Update lang buttons
     document.querySelectorAll(".lang-btn").forEach((btn) => {
       btn.classList.toggle("active", btn.dataset.lang === currentLang());

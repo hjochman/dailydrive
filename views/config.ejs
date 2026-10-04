@@ -62,7 +62,6 @@
       <img id="target-playlist-img" src="" alt="" style="width:40px;height:40px;border-radius:4px;object-fit:cover;display:none">
       <div style="flex:1;min-width:0">
         <div id="target-playlist-name" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= config.playlist_id || '' %></div>
-        <div id="target-playlist-id" style="font-size:.75rem;color:var(--text-muted)"><%= config.playlist_id || '' %></div>
       </div>
       <button type="button" class="btn-remove" onclick="clearTargetPlaylist()" title="Remove">✕</button>
     </div>
@@ -78,21 +77,22 @@
 
     <!-- Pin selection: dropdown -->
     <%
-      const pinnedIdx = (config.podcasts || []).findIndex(p => p.position === 'first');
+      const pinnedPod = (config.podcasts || []).find(p => p.position === 'first');
+      const pinnedId = pinnedPod ? pinnedPod.id : '';
     %>
     <div class="form-group" style="margin-bottom:0.5rem;">
       <label data-i18n="config_podcast_pin_select">Podcast anheften (erste Position)</label>
-      <select name="podcast_pin_index" id="podcast-pin-select" onchange="syncPinnedVisibility()">
-        <option value="-1" <%= pinnedIdx === -1 ? 'selected' : '' %> data-i18n="config_podcast_pin_none">Keinen anheften</option>
-        <% (config.podcasts || []).forEach(function(p, i) { %>
-        <option value="<%= i %>" data-podcast-id="<%= p.id || '' %>" <%= pinnedIdx === i ? 'selected' : '' %>><%= p.name || p.id %></option>
+      <select name="podcast_pin_id" id="podcast-pin-select" onchange="syncPinnedVisibility()">
+        <option value="-1" <%= !pinnedId ? 'selected' : '' %> data-i18n="config_podcast_pin_none">Keinen anheften</option>
+        <% (config.podcasts || []).forEach(function(p) { %>
+        <option value="<%= p.id || '' %>" data-podcast-id="<%= p.id || '' %>" <%= pinnedId === p.id ? 'selected' : '' %>><%= p.name || p.id %></option>
         <% }); %>
       </select>
       <p class="field-hint" data-i18n="config_podcast_pin_hint">Dieser Podcast erscheint immer zuerst in der Playlist, unabhängig vom Mix-Muster.</p>
     </div>
 
     <!-- Pinned podcast inline preview (populated by syncPinnedVisibility) -->
-    <div id="pinned-podcast-preview" style="margin-bottom:1rem;<%= pinnedIdx === -1 ? 'display:none' : '' %>"></div>
+    <div id="pinned-podcast-preview" style="margin-bottom:1rem;<%= !pinnedId ? 'display:none' : '' %>"></div>
 
     <!-- Alternate option -->
     <div class="form-group" style="margin-bottom:1rem;">
@@ -109,19 +109,16 @@
       <div class="card-title" style="font-size:0.85rem;margin-bottom:0.75rem;" data-i18n="config_podcast_edit_list">Podcasts bearbeiten</div>
       <div id="podcast-list" class="item-list">
         <% (config.podcasts || []).forEach(function(p, i) { %>
-        <div class="item-entry draggable <%= pinnedIdx === i ? 'podcast-pinned-entry' : '' %>"
+        <div class="item-entry draggable <%= p.position === 'first' ? 'podcast-pinned-entry' : '' %>"
              id="podcast-<%= i %>" draggable="true" data-podcast-id="<%= p.id || '' %>"
-             style="<%= pinnedIdx === i ? 'display:none' : '' %>">
+             style="<%= p.position === 'first' ? 'display:none' : '' %>">
           <span class="drag-handle" title="Drag to reorder">⠿</span>
           <div class="form-group" style="margin:0">
             <label data-i18n="config_podcast_name">Name</label>
             <input type="text" name="podcast_name[]" value="<%= p.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
+            <input type="hidden" name="podcast_id[]" value="<%= p.id || '' %>" required>
           </div>
-          <div class="form-group" style="margin:0">
-            <label data-i18n="config_podcast_id">Show ID</label>
-            <input type="text" name="podcast_id[]" value="<%= p.id || '' %>" readonly required style="background:var(--bg2,#262626);cursor:default">
-          </div>
-          <div class="form-group" style="margin:0;min-width:70px">
+          <div class="form-group" style="margin:0;min-width:70px;max-width:110px">
             <label data-i18n="config_podcast_episodes">Episodes</label>
             <input type="number" name="podcast_episodes[]" value="<%= p.episodes || 1 %>" min="1" max="10">
           </div>
@@ -192,12 +189,8 @@
         <div class="form-group" style="margin:0">
           <label data-i18n="config_podcast_name">Name</label>
           <input type="text" name="pl_name[]" value="<%= pl.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
+          <input type="hidden" name="pl_id[]" value="<%= pl.id || '' %>">
         </div>
-        <div class="form-group" style="margin:0">
-          <label>Playlist ID</label>
-          <input type="text" name="pl_id[]" value="<%= pl.id || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
-        </div>
-        <div></div><div></div>
         <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
       </div>
       <% }); %>
@@ -330,20 +323,23 @@ function rebuildPinSelect() {
 
   // Rebuild options (keep "none" at index 0)
   while (select.options.length > 1) select.remove(1);
-  let restoredIdx = -1;
-  document.querySelectorAll('#podcast-list .item-entry').forEach(function (entry, idx) {
+  let hasPinned = false;
+  
+  // Select all podcast entries from both containers so the pinned one isn't missed/removed
+  const entries = document.querySelectorAll('#pinned-podcast-preview .item-entry, #podcast-list .item-entry');
+  entries.forEach(function (entry, idx) {
     const nameInput = entry.querySelector('input[name="podcast_name[]"]');
     const idInput   = entry.querySelector('input[name="podcast_id[]"]');
     const podId = (idInput && idInput.value.trim()) || (entry.dataset.podcastId || '');
     const label = (nameInput && nameInput.value.trim()) || podId || ('Podcast ' + (idx + 1));
     const opt = document.createElement('option');
-    opt.value = String(idx);
+    opt.value = podId;
     opt.dataset.podcastId = podId;
     opt.textContent = label;
     select.appendChild(opt);
-    if (prevPinnedId && podId === prevPinnedId) restoredIdx = idx;
+    if (prevPinnedId && podId === prevPinnedId) hasPinned = true;
   });
-  select.value = restoredIdx >= 0 ? String(restoredIdx) : '-1';
+  select.value = hasPinned ? prevPinnedId : '-1';
 
   syncPinnedVisibility();
 }
@@ -370,7 +366,7 @@ function syncPinnedVisibility() {
     list.appendChild(el);
   });
 
-  if (pinnedId) {
+  if (pinnedId && pinnedId !== '-1') {
     // Find the matching entry in the list and move it to the preview
     const target = list.querySelector('.item-entry[data-podcast-id="' + pinnedId + '"]');
     if (target) {
@@ -409,12 +405,9 @@ function addPodcast(id = '', name = '') {
     <div class="form-group" style="margin:0">
       <label>${DDLang.t('config_podcast_name')}</label>
       <input type="text" name="podcast_name[]" value="${name}" readonly style="background:var(--bg2,#262626);cursor:default">
+      <input type="hidden" name="podcast_id[]" value="${id}" required>
     </div>
-    <div class="form-group" style="margin:0">
-      <label>${DDLang.t('config_podcast_id')}</label>
-      <input type="text" name="podcast_id[]" value="${id}" readonly required style="background:var(--bg2,#262626);cursor:default">
-    </div>
-    <div class="form-group" style="margin:0;min-width:70px">
+    <div class="form-group" style="margin:0;min-width:70px;max-width:110px">
       <label>${DDLang.t('config_podcast_episodes')}</label>
       <input type="number" name="podcast_episodes[]" value="1" min="1" max="10">
     </div>
@@ -435,12 +428,8 @@ function addPlaylist(id = '', name = '') {
     <div class="form-group" style="margin:0">
       <label>${DDLang.t('config_podcast_name')}</label>
       <input type="text" name="pl_name[]" value="${name}" readonly style="background:var(--bg2,#262626);cursor:default">
+      <input type="hidden" name="pl_id[]" value="${id}">
     </div>
-    <div class="form-group" style="margin:0">
-      <label>Playlist ID</label>
-      <input type="text" name="pl_id[]" value="${id}" readonly style="background:var(--bg2,#262626);cursor:default">
-    </div>
-    <div></div><div></div>
     <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
   `;
   document.getElementById('playlist-list').appendChild(div);
@@ -455,7 +444,6 @@ function clearTargetPlaylist() {
 function setTargetPlaylist(id, name, image) {
   document.getElementById('target_playlist_id').value = id;
   document.getElementById('target-playlist-name').textContent = name;
-  document.getElementById('target-playlist-id').textContent = id;
   const img = document.getElementById('target-playlist-img');
   if (image) { img.src = image; img.style.display = 'block'; }
   else { img.style.display = 'none'; }

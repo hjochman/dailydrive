@@ -382,10 +382,10 @@ h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
 /* =============================================================================
    Stat row (dashboard)
    ============================================================================= */
-.stat-row {
+.stat-row-2 {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 1rem;
+  grid-template-columns: 1fr 2fr;
+  gap: 0.75rem;
   margin-bottom: 1.25rem;
 }
 
@@ -393,20 +393,31 @@ h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1rem 1.25rem;
+  padding: 0.6rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
 }
 
 .stat-label {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  white-space: nowrap;
 }
 
-.stat-value {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin-top: 0.25rem;
+.stat-date {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text);
 }
 
 /* =============================================================================
@@ -544,14 +555,14 @@ input[type="checkbox"] {
   border-radius: var(--radius);
   padding: 0.75rem 1rem;
   display: grid;
-  grid-template-columns: 1fr 1fr auto auto auto;
+  grid-template-columns: 1fr auto;
   gap: 0.75rem;
   align-items: center;
 }
 
 /* Podcast entries get an extra drag-handle column on the left */
 .item-entry.draggable {
-  grid-template-columns: auto 1fr 1fr auto auto auto;
+  grid-template-columns: auto 1fr auto auto;
 }
 
 .drag-handle {
@@ -570,7 +581,7 @@ input[type="checkbox"] {
 
 /* When a podcast entry is shown in the pinned preview slot, hide the drag handle */
 #pinned-podcast-preview .drag-handle { display: none; }
-#pinned-podcast-preview .item-entry.draggable { grid-template-columns: 1fr 1fr auto auto auto; }
+#pinned-podcast-preview .item-entry.draggable { grid-template-columns: 1fr auto auto; }
 
 .item-entry.drag-over {
   border-color: var(--accent);
@@ -1064,7 +1075,7 @@ input[type="checkbox"] {
   .wizard-layout { grid-template-columns: 1fr; }
   .wizard-bob { display: none; }
   .item-entry { grid-template-columns: 1fr 1fr; }
-  .stat-row { grid-template-columns: 1fr 1fr; }
+  .stat-row-2 { grid-template-columns: 1fr 1fr; }
 
   /* Bob Banner kompakter auf Smartphones */
   .bob-banner { height: 68px; gap: 0.75rem; }

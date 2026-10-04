@@ -56,8 +56,9 @@ function logLine(msg) {
   } catch (_) { /* best-effort */ }
 }
 
-// Route index.js log output through logLine so it appears in the web UI log
+// Route index.js and token-manager.js log output through logLine so it appears in the web UI log
 setIndexLogger(logLine);
+tokenManager.setLogger(logLine, logLine);
 
 // ---------------------------------------------------------------------------
 // Config I/O
@@ -134,7 +135,7 @@ let _lastRefreshTime = null;
  * matching the cron expressions set in startScheduler().
  * Works correctly immediately after server start (no prior run needed).
  */
-function nextRefreshString() {
+function nextRefreshDate() {
   const now   = new Date();
   const hours = Math.max(1, Math.min(168, getRefreshH()));
   let next;
@@ -165,7 +166,11 @@ function nextRefreshString() {
     next.setDate(next.getDate() + days);
   }
 
-  return next.toLocaleString();
+  return next;
+}
+
+function nextRefreshString() {
+  return nextRefreshDate().toLocaleString();
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +213,8 @@ function flash(req) {
 
 // ── GET /  Dashboard ────────────────────────────────────────────────────────
 app.get("/", async (req, res) => {
+  // Ensure token is refreshed proactively if expired/expiring
+  await tokenManager.refreshTokenIfNeeded().catch(() => {});
   const config = loadConfig();
   const status = getAppStatus();
   const state  = loadState();
@@ -283,6 +290,7 @@ app.get("/", async (req, res) => {
     state,
     playlistId:  config.playlist_id || "",
     nextRefresh: nextRefreshString(),
+    nextRefreshDate: nextRefreshDate(),
     flash:       reauthFlash || flash(req),
     playlistTracks,
     playlistError,
@@ -650,16 +658,19 @@ app.post("/config", (req, res) => {
   const podNames     = [].concat(b.podcast_name     || b["podcast_name[]"]     || []);
   const podIds       = [].concat(b.podcast_id       || b["podcast_id[]"]       || []);
   const podEpisodes  = [].concat(b.podcast_episodes || b["podcast_episodes[]"] || []);
-  const pinnedIndex  = parseInt(b.podcast_pin_index ?? "-1", 10);
+  const pinnedId     = (b.podcast_pin_id || "").trim();
 
   podIds.forEach((id, i) => {
     if (!id.trim()) return;
+    const trimmedId = id.trim();
     const pod = {
-      id:       id.trim(),
-      name:     (podNames[i] || "").trim() || id.trim(),
+      id:       trimmedId,
+      name:     (podNames[i] || "").trim() || trimmedId,
       episodes: parseInt(podEpisodes[i] || "1", 10),
     };
-    if (pinnedIndex === i) pod.position = "first";
+    if (pinnedId && pinnedId !== "-1" && trimmedId === pinnedId) {
+      pod.position = "first";
+    }
     cfg.podcasts.push(pod);
   });
 
