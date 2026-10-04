@@ -1,0 +1,93 @@
+# =============================================================================
+# Daily Drive by IBM Bob — Synology NAS Deployment Template
+# =============================================================================
+#
+# QUICK START:
+#   1. Copy this file to your NAS and rename it to  docker-compose.yml
+#   2. Adjust the volume path to match your NAS volume (see below)
+#   3. Open Synology Container Manager → Project → Create → Import file
+#   4. Start the project and open  http://<NAS-IP>:8080  in your browser
+#   5. Follow the Setup Wizard — it guides you through everything else
+#      (Spotify credentials, OAuth, playlist and podcast setup)
+#
+# PORT CONFLICTS:
+#   If port 8080 is already in use on your NAS, change the left side of
+#   the ports mapping (e.g.  "8090:8080") and update WEB_PORT accordingly.
+#
+# FINDING YOUR NAS IP:
+#   Synology DSM → Control Panel → Network → Network Interface
+#   Or check your router's DHCP table.
+# =============================================================================
+
+services:
+  dailydrive:
+    # ── Image ──────────────────────────────────────────────────────────────
+    # Build locally:    image: dailydrive:latest  +  build: .
+    # Pull from registry (when published):
+    image: dailydrive:latest
+    build: .                      # Remove this line when pulling from a registry
+
+    container_name: dailydrive
+    restart: unless-stopped       # Auto-restart on NAS reboot
+
+    # ── Port mapping ───────────────────────────────────────────────────────
+    # Format: "<HOST_PORT>:<CONTAINER_PORT>"
+    # Change 8080 (left) if that port is in use on your NAS.
+    ports:
+      - "8080:8080"
+
+    # ── Persistent data volume ─────────────────────────────────────────────
+    # All state (config, Spotify token, playlist cache, logs) is stored here.
+    # Replace /volume1/docker/dailydrive/data with your actual NAS path.
+    #
+    # Common Synology volume paths:
+    #   /volume1/docker/dailydrive/data   (main volume, most common)
+    #   /volume2/docker/dailydrive/data   (if you have a second volume)
+    #
+    # Create the directory first:
+    #   SSH into NAS → mkdir -p /volume1/docker/dailydrive/data
+    volumes:
+      - /volume1/docker/dailydrive/data:/data   # ← Change left side to your path
+
+    # ── Environment variables ──────────────────────────────────────────────
+    environment:
+
+      # ── Web UI port ─────────────────────────────────────────────────────
+      # Must match the host port (left side of the ports mapping above).
+      WEB_PORT: "8080"
+
+      # ── Internal data path (do not change) ──────────────────────────────
+      DATA_DIR: "/data"
+
+    # ── Resource limits (optional, recommended for NAS) ───────────────────
+    # Prevents the container from consuming too much RAM on a shared NAS.
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+    # ── Healthcheck ────────────────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+# =============================================================================
+# After deployment:
+#   1. Open http://<NAS-IP>:8080 in your browser
+#   2. Follow the Setup Wizard (3 steps) — no manual credential config needed
+#   3. Authorize with Spotify when prompted
+#   4. Done! The playlist updates automatically every 24 hours (at 04:00).
+#
+# To change the refresh interval:
+#   Dashboard → Config → Refresh interval
+#
+# To force an immediate refresh:
+#   Dashboard → "Jetzt aktualisieren / Refresh now"
+#
+# Logs:
+#   Container Manager → Containers → dailydrive → Log
+#   Or: /volume1/docker/dailydrive/data/logs/YYYY-MM-DD.log
+# =============================================================================

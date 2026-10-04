@@ -1,0 +1,189 @@
+<h1 data-i18n="dash_title">Dashboard</h1>
+
+<% if (flash) { %>
+<div class="alert alert-<%= flash.type %>"><%= flash.message %></div>
+<% } %>
+
+<!-- Status -->
+<div class="stat-row-2">
+  <div class="stat-box">
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_check_credentials">Credentials</span>
+      <% if (status.hasCredentials) { %>
+        <span class="badge badge-ok">OK</span>
+      <% } else { %>
+        <span class="badge badge-error" data-i18n="dash_status_no_config">Not configured</span>
+      <% } %>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_check_token">Token</span>
+      <% if (status.tokenValid) { %>
+        <span class="badge badge-ok">OK</span>
+      <% } else { %>
+        <span class="badge badge-error" data-i18n="dash_status_no_token">Not authenticated</span>
+      <% } %>
+    </div>
+  </div>
+
+  <div class="stat-box">
+    <% if (status.tokenValid && status.expiresAt) { %>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_token_valid">Token valid until</span>
+      <span class="stat-date" data-timestamp="<%= status.expiresAt instanceof Date ? status.expiresAt.toISOString() : new Date(status.expiresAt).toISOString() %>"><%= status.expiresAt.toLocaleString() %></span>
+    </div>
+    <% } %>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_last_refresh">Last refresh</span>
+      <span class="stat-date" data-timestamp="<%= state.last_updated || '' %>"><%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %></span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-label" data-i18n="dash_next_refresh">Next refresh</span>
+      <span class="stat-date" data-timestamp="<%= nextRefreshDate ? nextRefreshDate.toISOString() : '' %>"><%= nextRefresh %></span>
+    </div>
+  </div>
+</div>
+
+<!-- Actions -->
+<div class="card">
+  <div class="card-title" data-i18n="dash_checklist_title">Setup status</div>
+  <ul class="checklist">
+    <li class="<%= status.hasCredentials ? 'done' : '' %>">
+      <span class="check-icon"><%= status.hasCredentials ? '✅' : '○' %></span>
+      <span data-i18n="dash_check_credentials">Spotify credentials</span>
+    </li>
+    <li class="<%= status.tokenValid ? 'done' : '' %>">
+      <span class="check-icon"><%= status.tokenValid ? '✅' : '○' %></span>
+      <span data-i18n="dash_check_token">Spotify token</span>
+    </li>
+    <li class="<%= status.hasPlaylist ? 'done' : '' %>">
+      <span class="check-icon"><%= status.hasPlaylist ? '✅' : '○' %></span>
+      <span data-i18n="dash_check_playlist">Playlist ID</span>
+    </li>
+    <li class="<%= status.hasPodcasts ? 'done' : '' %>">
+      <span class="check-icon"><%= status.hasPodcasts ? '✅' : '○' %></span>
+      <span data-i18n="dash_check_podcasts">Podcasts configured</span>
+    </li>
+  </ul>
+</div>
+
+<% if (!status.tokenValid && status.hasCredentials) { %>
+<div class="alert alert-warn" style="margin-bottom:1rem">
+  <strong data-i18n="dash_reauth_title">Spotify authorisation expired.</strong>
+  <span data-i18n="dash_reauth_desc"> Your refresh token is no longer valid. One click on the button below will reconnect Daily Drive — no credentials need to be re-entered.</span>
+</div>
+<% } %>
+
+<div class="btn-row">
+  <% if (status.tokenValid && status.hasPlaylist) { %>
+    <button id="btn-refresh" class="btn btn-primary" onclick="triggerRefresh()">
+      <span data-i18n="dash_refresh_now">Refresh now</span>
+    </button>
+  <% } %>
+
+  <% if (!status.hasCredentials) { %>
+    <a href="/setup" class="btn btn-primary" data-i18n="dash_go_setup">Go to Setup</a>
+  <% } else if (!status.tokenValid) { %>
+    <a href="/reauth" class="btn btn-spotify" style="font-size:1rem;padding:.75rem 2rem">
+      🎵 <span data-i18n="dash_reauth_btn">Re-authorize with Spotify</span>
+    </a>
+  <% } %>
+
+  <a href="/config" class="btn btn-ghost" data-i18n="dash_go_config">Edit Configuration</a>
+
+  <% if (status.hasPlaylist && playlistId) { %>
+    <a href="https://open.spotify.com/playlist/<%= playlistId %>"
+       target="_blank" rel="noopener"
+       class="btn btn-spotify"
+       data-i18n="dash_playlist">Open playlist in Spotify</a>
+  <% } %>
+</div>
+
+<!-- Current Playlist Contents -->
+<% if (status.hasPlaylist) { %>
+<div class="card" style="margin-top: 1.5rem;">
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+    <div class="card-title" style="margin-bottom: 0;" data-i18n="dash_playlist_title">Current Playlist Contents</div>
+    <div>
+      <% if (playlistError) { %>
+        <span class="badge badge-error" title="<%= playlistError %>"><span data-i18n="dash_playlist_error">Error:</span> <%= playlistError %></span>
+      <% } else if (playlistTracks && playlistTracks.length > 0) { %>
+        <% if (isLive) { %>
+          <span class="badge badge-ok" data-i18n="dash_playlist_live">Live from Spotify</span>
+        <% } else { %>
+          <span class="badge badge-warn" data-i18n="dash_playlist_cached">Cached (Offline)</span>
+        <% } %>
+      <% } %>
+    </div>
+  </div>
+
+  <% if (playlistTracks && playlistTracks.length > 0) { %>
+    <div class="playlist-table-container">
+      <table class="playlist-table">
+        <thead>
+          <tr>
+            <th style="width: 40px; text-align: center;">#</th>
+            <th data-i18n="dash_playlist_track">Track/Episode</th>
+            <th data-i18n="dash_playlist_artist">Artist/Show</th>
+            <th style="width: 80px; text-align: right;" data-i18n="dash_playlist_duration">Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% playlistTracks.forEach((track, index) => { %>
+            <tr class="playlist-row <%= track.type %>">
+              <td style="text-align: center; color: var(--text-muted); font-size: 0.85rem;"><%= index + 1 %></td>
+              <td>
+                <div class="playlist-track-name">
+                  <span class="playlist-icon"><%= track.type === 'episode' ? '🎙️' : '🎵' %></span>
+                  <%= track.name %>
+                </div>
+              </td>
+              <td>
+                <span class="playlist-artist-name">
+                  <%= track.type === 'track' ? track.artist : track.show %>
+                </span>
+              </td>
+              <td style="text-align: right; color: var(--text-muted); font-family: monospace;">
+                <%
+                  let durationStr = '—';
+                  if (track.duration_ms) {
+                    const totalSecs = Math.floor(track.duration_ms / 1000);
+                    const mins = Math.floor(totalSecs / 60);
+                    const secs = totalSecs % 60;
+                    durationStr = `${mins}:${secs.toString().padStart(2, '0')}`;
+                  }
+                %>
+                <%= durationStr %>
+              </td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <div class="field-hint" style="text-align: center; padding: 2rem 0;" data-i18n="dash_playlist_empty">
+      The playlist is currently empty or has not been loaded yet.
+    </div>
+  <% } %>
+</div>
+<% } %>
+
+<script>
+async function triggerRefresh() {
+  const btn = document.getElementById('btn-refresh');
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span data-i18n="dash_refreshing">Refreshing…</span>';
+  DDLang.load(); // re-apply i18n to new element
+  try {
+    const res = await fetch('/refresh', { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      location.reload();
+    } else {
+      location.href = '/logs?error=' + encodeURIComponent(data.error || 'Refresh failed');
+    }
+  } catch(e) {
+    location.href = '/logs';
+  }
+}
+</script>

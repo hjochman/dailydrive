@@ -1,0 +1,34 @@
+<h1 data-i18n="logs_title">Logs</h1>
+
+<% if (flash) { %>
+<div class="alert alert-<%= flash.type %>" style="margin-bottom:1rem"><%= flash.message %></div>
+<% } %>
+
+<div class="btn-row" style="margin-bottom:1rem">
+  <button class="btn btn-ghost" onclick="loadLogs()" data-i18n="logs_refresh">Refresh</button>
+</div>
+
+<% if (logContent && logContent.length > 0) { %>
+<pre class="log-output" id="log-output"><%= logContent %></pre>
+<% } else { %>
+<div class="card">
+  <p style="color:var(--text-muted)" data-i18n="logs_empty">No log entries yet.</p>
+</div>
+<% } %>
+
+<script>
+// Auto-scroll to bottom on load
+const logEl = document.getElementById('log-output');
+if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+async function loadLogs() {
+  const res = await fetch('/logs?raw=1');
+  const text = await res.text();
+  if (logEl) {
+    logEl.textContent = text;
+    logEl.scrollTop = logEl.scrollHeight;
+  } else {
+    location.reload();
+  }
+}
+</script>

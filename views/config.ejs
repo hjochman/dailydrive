@@ -1,0 +1,621 @@
+<h1 data-i18n="config_title">Configuration</h1>
+
+<% if (fromSetup) { %>
+<div class="alert alert-info" style="margin-bottom:1.25rem;">
+  🎉 <strong data-i18n="config_setup_welcome_title">Almost done!</strong>
+  <span data-i18n="config_setup_welcome_desc">Add your podcasts and tweak the music settings below, then hit Save.</span>
+</div>
+<% } %>
+
+<% if (flash) { %>
+<div class="alert alert-<%= flash.type %>" style="margin-bottom:1rem">
+  <div><%= flash.message %></div>
+  <% if (flash.message && (flash.message.includes('EACCES') || flash.message.includes('permission denied'))) { %>
+  <div style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.15);font-size:0.85rem;line-height:1.5">
+    <strong style="display:block;margin-bottom:0.35rem" data-i18n="eacces_help_title">📁 Berechtigungsproblem auf der Synology NAS beheben:</strong>
+    <ol style="margin:0;padding-left:1.25rem">
+      <li data-i18n="eacces_help_step1">Öffne die <strong>File Station</strong> im Synology DSM.</li>
+      <li data-i18n="eacces_help_step2">Navigiere zum gemounteten Ordner (z. B. <code>docker/dailydrive/data</code>).</li>
+      <li data-i18n="eacces_help_step3">Rechtsklick auf den Ordner <code>data</code> → <strong>Eigenschaften</strong> → Reiter <strong>Berechtigung</strong>.</li>
+      <li data-i18n="eacces_help_step4">Stelle sicher, dass <strong>Everyone / Jeder</strong> Lese- und Schreibrechte besitzt (inkl. Haken bei <em>"Auf diesen Ordner, Unterordner und Dateien anwenden"</em>).</li>
+    </ol>
+  </div>
+  <% } %>
+</div>
+<% } %>
+
+<% if (saved) { %>
+<div class="alert alert-success" data-i18n="config_saved">Saved!</div>
+<% } %>
+
+<form action="/config" method="POST" id="config-form">
+
+  <!-- ===== Spotify ===== -->
+  <div class="card">
+    <div class="card-title" data-i18n="config_section_spotify">Spotify</div>
+
+    <div class="form-group">
+      <label data-i18n="setup_step1_client_id">Client ID</label>
+      <input type="text" name="client_id" value="<%= config.spotify && config.spotify.client_id || '' %>">
+    </div>
+    <div class="form-group">
+      <label data-i18n="setup_step1_client_secret">Client Secret</label>
+      <input type="password" name="client_secret" autocomplete="off"
+             placeholder="<%= config.spotify && config.spotify.client_id ? '(unchanged)' : '' %>">
+      <% if (config.spotify && config.spotify.client_id) { %>
+      <p class="field-hint">Leave blank to keep existing value.</p>
+      <% } %>
+    </div>
+    <div class="form-group">
+      <label data-i18n="setup_step1_redirect">Redirect URI</label>
+      <input type="url" name="redirect_uri" value="<%= config.spotify && config.spotify.redirect_uri || redirectUri %>">
+    </div>
+  </div>
+
+  <!-- ===== Playlist ===== -->
+  <div class="card">
+    <div class="card-title" data-i18n="config_section_playlist">Playlist</div>
+    <!-- Hidden field carries the ID to the server -->
+    <input type="hidden" name="playlist_id" id="target_playlist_id" value="<%= config.playlist_id || '' %>">
+    <!-- Card showing current selection -->
+    <div id="target-playlist-card" style="display:<%= config.playlist_id ? 'flex' : 'none' %>;align-items:center;gap:.75rem;padding:.6rem .75rem;background:var(--bg2,#262626);border:1px solid var(--border);border-radius:6px;margin-bottom:.75rem">
+      <img id="target-playlist-img" src="" alt="" style="width:40px;height:40px;border-radius:4px;object-fit:cover;display:none">
+      <div style="flex:1;min-width:0">
+        <div id="target-playlist-name" style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= config.playlist_id || '' %></div>
+      </div>
+      <button type="button" class="btn-remove" onclick="clearTargetPlaylist()" title="Remove">✕</button>
+    </div>
+    <div id="target-playlist-empty" style="display:<%= config.playlist_id ? 'none' : 'block' %>;color:var(--text-muted);font-size:.875rem;margin-bottom:.75rem" data-i18n="dash_playlist_empty">No playlist selected.</div>
+    <div class="btn-row" style="margin-top:0">
+      <button type="button" class="btn btn-primary" onclick="openPicker('target_playlist')" data-i18n="picker_select_playlist">🔍 Select from Spotify</button>
+    </div>
+  </div>
+
+  <!-- ===== Podcasts ===== -->
+  <div class="card">
+    <div class="card-title" data-i18n="config_section_podcasts">Podcasts</div>
+
+    <!-- Pin selection: dropdown -->
+    <%
+      const pinnedPod = (config.podcasts || []).find(p => p.position === 'first');
+      const pinnedId = pinnedPod ? pinnedPod.id : '';
+    %>
+    <div class="form-group" style="margin-bottom:0.5rem;">
+      <label data-i18n="config_podcast_pin_select">Podcast anheften (erste Position)</label>
+      <select name="podcast_pin_id" id="podcast-pin-select" onchange="syncPinnedVisibility()">
+        <option value="-1" <%= !pinnedId ? 'selected' : '' %> data-i18n="config_podcast_pin_none">Keinen anheften</option>
+        <% (config.podcasts || []).forEach(function(p) { %>
+        <option value="<%= p.id || '' %>" data-podcast-id="<%= p.id || '' %>" <%= pinnedId === p.id ? 'selected' : '' %>><%= p.name || p.id %></option>
+        <% }); %>
+      </select>
+      <p class="field-hint" data-i18n="config_podcast_pin_hint">Dieser Podcast erscheint immer zuerst in der Playlist, unabhängig vom Mix-Muster.</p>
+    </div>
+
+    <!-- Pinned podcast inline preview (populated by syncPinnedVisibility) -->
+    <div id="pinned-podcast-preview" style="margin-bottom:1rem;<%= !pinnedId ? 'display:none' : '' %>"></div>
+
+    <!-- Alternate option -->
+    <div class="form-group" style="margin-bottom:1rem;">
+      <div class="checkbox-row">
+        <input type="checkbox" id="podcast_alternate" name="podcast_alternate" value="1"
+               <%= (config.podcast_alternate) ? 'checked' : '' %>>
+        <label for="podcast_alternate" style="text-transform:none;letter-spacing:0" data-i18n="config_podcast_alternate">Podcasts alternieren (nicht nacheinander)</label>
+      </div>
+      <p class="field-hint" data-i18n="config_podcast_alternate_hint">Episoden aller Podcasts werden im Wechsel eingemischt statt erst alle Episoden eines Podcasts.</p>
+    </div>
+
+    <!-- Podcast edit list (below options) -->
+    <div style="border-top: 1px solid var(--border); padding-top: 1rem;">
+      <div class="card-title" style="font-size:0.85rem;margin-bottom:0.75rem;" data-i18n="config_podcast_edit_list">Podcasts bearbeiten</div>
+      <div id="podcast-list" class="item-list">
+        <% (config.podcasts || []).forEach(function(p, i) { %>
+        <div class="item-entry draggable <%= p.position === 'first' ? 'podcast-pinned-entry' : '' %>"
+             id="podcast-<%= i %>" draggable="true" data-podcast-id="<%= p.id || '' %>"
+             style="<%= p.position === 'first' ? 'display:none' : '' %>">
+          <span class="drag-handle" title="Drag to reorder">⠿</span>
+          <div class="form-group" style="margin:0">
+            <label data-i18n="config_podcast_name">Name</label>
+            <input type="text" name="podcast_name[]" value="<%= p.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
+            <input type="hidden" name="podcast_id[]" value="<%= p.id || '' %>" required>
+          </div>
+          <div class="form-group" style="margin:0;min-width:70px;max-width:110px">
+            <label data-i18n="config_podcast_episodes">Episodes</label>
+            <input type="number" name="podcast_episodes[]" value="<%= p.episodes || 1 %>" min="1" max="10">
+          </div>
+          <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
+        </div>
+        <% }); %>
+      </div>
+      <div class="btn-row" style="margin-top:0.75rem;">
+        <button type="button" class="btn btn-primary" onclick="openPicker('show')" data-i18n="picker_select_podcast">🔍 Select from Spotify</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Music ===== -->
+  <div class="card">
+    <div class="card-title" data-i18n="config_section_music">Music</div>
+
+    <div class="form-group">
+      <div class="checkbox-row">
+        <input type="checkbox" id="top_tracks_enabled" name="top_tracks_enabled" value="1"
+               <%= (config.music && config.music.top_tracks && config.music.top_tracks.enabled) ? 'checked' : '' %>>
+        <label for="top_tracks_enabled" style="text-transform:none;letter-spacing:0" data-i18n="config_top_tracks">Enable top tracks</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_time_range">Time range</label>
+      <select name="time_range">
+        <% const tr = config.music && config.music.top_tracks && config.music.top_tracks.time_range || 'short_term'; %>
+        <option value="short_term"  <%= tr === 'short_term'  ? 'selected' : '' %> data-i18n="config_time_range_short">Last month</option>
+        <option value="medium_term" <%= tr === 'medium_term' ? 'selected' : '' %> data-i18n="config_time_range_medium">Last 6 months</option>
+        <option value="long_term"   <%= tr === 'long_term'   ? 'selected' : '' %> data-i18n="config_time_range_long">All time</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <div class="checkbox-row">
+        <input type="checkbox" id="saved_tracks_enabled" name="saved_tracks_enabled" value="1"
+               <%= (config.music && config.music.saved_tracks && config.music.saved_tracks.enabled) ? 'checked' : '' %>>
+        <label for="saved_tracks_enabled" style="text-transform:none;letter-spacing:0" data-i18n="config_saved_tracks">Enable liked/saved songs</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_saved_tracks_count">Saved songs fetch count</label>
+      <input type="number" name="saved_tracks_count" value="<%= config.music && config.music.saved_tracks && config.music.saved_tracks.count || 50 %>" min="1" max="500">
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_total_songs">Total songs</label>
+      <input type="number" name="total_songs" value="<%= config.music && config.music.total_songs || 15 %>" min="1" max="200">
+      <p class="field-hint" data-i18n="config_total_songs_hint">Target number of songs in the playlist. If genres are specified, 50% comes from familiar sources (playlists / likes / top tracks) and 50% from genre discovery search.</p>
+    </div>
+    <div class="form-group">
+      <div class="checkbox-row">
+        <input type="checkbox" id="shuffle" name="shuffle" value="1"
+               <%= (config.music && config.music.shuffle !== false) ? 'checked' : '' %>>
+        <label for="shuffle" style="text-transform:none;letter-spacing:0" data-i18n="config_shuffle">Shuffle songs</label>
+      </div>
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_genres">Genre tags (comma-separated)</label>
+      <input type="text" name="genres" value="<%= config.music && config.music.genres ? config.music.genres.join(', ') : '' %>" placeholder="pop, indie rock, electronic">
+      <p class="field-hint" data-i18n="config_genres_hint">Separate genres with commas or semicolons (e.g. pop, dance, indie). Note: Spotify returns up to 10 discovery tracks per genre search.</p>
+    </div>
+
+    <!-- Source playlists -->
+    <div class="card-title" style="margin-top:1rem" data-i18n="config_playlists">Source playlists</div>
+    <div id="playlist-list" class="item-list">
+      <% (config.music && config.music.playlists || []).forEach(function(pl, i) { %>
+      <div class="item-entry" id="pl-<%= i %>">
+        <div class="form-group" style="margin:0">
+          <label data-i18n="config_podcast_name">Name</label>
+          <input type="text" name="pl_name[]" value="<%= pl.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
+          <input type="hidden" name="pl_id[]" value="<%= pl.id || '' %>">
+        </div>
+        <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
+      </div>
+      <% }); %>
+    </div>
+    <div class="btn-row">
+      <button type="button" class="btn btn-primary" onclick="openPicker('playlist')" data-i18n="picker_select_playlist">🔍 Select from Spotify</button>
+    </div>
+  </div>
+
+  <!-- ===== Mix & Schedule ===== -->
+  <div class="card">
+    <div class="card-title" data-i18n="config_section_schedule">Mix & Schedule</div>
+    <div class="form-group">
+      <label data-i18n="config_mix_pattern">Mix pattern (P=podcast M=music)</label>
+      <input type="text" name="mix_pattern" value="<%= config.mix_pattern || 'PMMMM' %>" placeholder="PMMMM">
+    </div>
+    <div class="form-group">
+      <label data-i18n="config_refresh_interval">Refresh interval (e.g. 30m, 1h, 24h)</label>
+      <input type="text" name="refresh_interval" value="<%= refreshInterval %>" placeholder="e.g. 30m, 1h, 24h">
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button type="submit" class="btn btn-primary" data-i18n="config_save">Save</button>
+  </div>
+</form>
+
+<!-- Spotify Picker Modal -->
+<div id="spotify-picker" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h2 id="picker-title">Select Item</h2>
+      <button type="button" class="modal-close" onclick="closePicker()">&times;</button>
+    </div>
+    
+    <div class="picker-tabs">
+      <button type="button" class="picker-tab active" id="tab-library" onclick="switchPickerTab('library')" data-i18n="picker_tab_library">My Library</button>
+      <button type="button" class="picker-tab" id="tab-search" onclick="switchPickerTab('search')" data-i18n="picker_tab_search">Search</button>
+    </div>
+
+    <!-- Search input -->
+    <div class="picker-search-bar" id="picker-search-container" style="display: none; margin-top: 1rem; gap: 0.5rem;">
+      <input type="text" id="picker-search-input" data-i18n="picker_search_placeholder" placeholder="Search Spotify..." onkeydown="if(event.key === 'Enter') performPickerSearch()">
+      <button type="button" class="btn btn-primary" onclick="performPickerSearch()" data-i18n="logs_refresh">Search</button>
+    </div>
+
+    <div id="picker-loading" class="picker-loading" style="display: none;">
+      <div class="spinner"></div>
+    </div>
+
+    <div id="picker-empty" class="picker-empty" style="display: none;" data-i18n="dash_playlist_empty">
+      No items found.
+    </div>
+
+    <div class="picker-results-grid" id="picker-results">
+      <!-- Results populated by JS -->
+    </div>
+  </div>
+</div>
+
+<script>
+let podcastCount = <%= (config.podcasts || []).length %>;
+let plCount      = <%= (config.music && config.music.playlists ? config.music.playlists.length : 0) %>;
+
+// ── Drag-and-Drop reordering for podcast list ────────────────────────────────
+let dragSrc = null;
+
+function initDragItem(el) {
+  el.addEventListener('dragstart', function (e) {
+    dragSrc = el;
+    el.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Store empty string so Firefox allows drag
+    e.dataTransfer.setData('text/plain', '');
+  });
+  el.addEventListener('dragend', function () {
+    el.classList.remove('dragging');
+    document.querySelectorAll('#podcast-list .item-entry').forEach(function (e) {
+      e.classList.remove('drag-over');
+    });
+    dragSrc = null;
+  });
+  el.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragSrc && dragSrc !== el) {
+      document.querySelectorAll('#podcast-list .item-entry').forEach(function (e) {
+        e.classList.remove('drag-over');
+      });
+      el.classList.add('drag-over');
+    }
+  });
+  el.addEventListener('dragleave', function () {
+    el.classList.remove('drag-over');
+  });
+  el.addEventListener('drop', function (e) {
+    e.preventDefault();
+    el.classList.remove('drag-over');
+    if (!dragSrc || dragSrc === el) return;
+    const list = document.getElementById('podcast-list');
+    const items = Array.from(list.querySelectorAll('.item-entry'));
+    const srcIdx = items.indexOf(dragSrc);
+    const tgtIdx = items.indexOf(el);
+    if (srcIdx < tgtIdx) {
+      list.insertBefore(dragSrc, el.nextSibling);
+    } else {
+      list.insertBefore(dragSrc, el);
+    }
+    rebuildPinSelect();
+  });
+}
+
+// Initialise drag on all existing podcast entries at page load
+document.addEventListener('DOMContentLoaded', function () {
+  document.querySelectorAll('#podcast-list .item-entry').forEach(initDragItem);
+  syncPinnedVisibility();
+});
+
+/**
+ * Rebuilds the pin select options to match the current podcast-list order.
+ * Preserves the selected podcast by show ID across reorders.
+ */
+function rebuildPinSelect() {
+  const select = document.getElementById('podcast-pin-select');
+  if (!select) return;
+
+  // Remember currently selected podcast by ID
+  const prevOpt = select.options[select.selectedIndex];
+  const prevPinnedId = prevOpt ? (prevOpt.dataset.podcastId || '') : '';
+
+  // Rebuild options (keep "none" at index 0)
+  while (select.options.length > 1) select.remove(1);
+  let hasPinned = false;
+  
+  // Select all podcast entries from both containers so the pinned one isn't missed/removed
+  const entries = document.querySelectorAll('#pinned-podcast-preview .item-entry, #podcast-list .item-entry');
+  entries.forEach(function (entry, idx) {
+    const nameInput = entry.querySelector('input[name="podcast_name[]"]');
+    const idInput   = entry.querySelector('input[name="podcast_id[]"]');
+    const podId = (idInput && idInput.value.trim()) || (entry.dataset.podcastId || '');
+    const label = (nameInput && nameInput.value.trim()) || podId || ('Podcast ' + (idx + 1));
+    const opt = document.createElement('option');
+    opt.value = podId;
+    opt.dataset.podcastId = podId;
+    opt.textContent = label;
+    select.appendChild(opt);
+    if (prevPinnedId && podId === prevPinnedId) hasPinned = true;
+  });
+  select.value = hasPinned ? prevPinnedId : '-1';
+
+  syncPinnedVisibility();
+}
+
+/**
+ * Moves the pinned podcast entry into the preview slot below the select,
+ * and returns all others to the edit list.
+ */
+function syncPinnedVisibility() {
+  const select  = document.getElementById('podcast-pin-select');
+  const preview = document.getElementById('pinned-podcast-preview');
+  const list    = document.getElementById('podcast-list');
+  if (!select || !preview || !list) return;
+
+  const selOpt   = select.options[select.selectedIndex];
+  const pinnedId = selOpt ? (selOpt.dataset.podcastId || '') : '';
+
+  // Return any previously previewed entry back to the list first
+  Array.from(preview.children).forEach(function (el) {
+    el.style.display = '';
+    _restoreFromPreview(el);
+    const idInput = el.querySelector('input[name="podcast_id[]"]');
+    if (idInput) idInput.required = true;
+    list.appendChild(el);
+  });
+
+  if (pinnedId && pinnedId !== '-1') {
+    // Find the matching entry in the list and move it to the preview
+    const target = list.querySelector('.item-entry[data-podcast-id="' + pinnedId + '"]');
+    if (target) {
+      target.style.display = '';
+      // Hide the remove button while pinned (use the select to un-pin instead)
+      const removeBtn = target.querySelector('.btn-remove');
+      if (removeBtn) removeBtn.style.display = 'none';
+      preview.appendChild(target);
+      preview.style.display = '';
+      return;
+    }
+  }
+  preview.style.display = 'none';
+}
+
+function _restoreFromPreview(el) {
+  // Restore remove button when entry moves back to the list
+  const removeBtn = el.querySelector('.btn-remove');
+  if (removeBtn) removeBtn.style.display = '';
+}
+
+function removeEntry(el) {
+  el.remove();
+  rebuildPinSelect();
+}
+
+function addPodcast(id = '', name = '') {
+  const i = podcastCount++;
+  const div = document.createElement('div');
+  div.className = 'item-entry draggable';
+  div.id = 'podcast-' + i;
+  div.draggable = true;
+  div.dataset.podcastId = id;
+  div.innerHTML = `
+    <span class="drag-handle" title="Drag to reorder">⠿</span>
+    <div class="form-group" style="margin:0">
+      <label>${DDLang.t('config_podcast_name')}</label>
+      <input type="text" name="podcast_name[]" value="${name}" readonly style="background:var(--bg2,#262626);cursor:default">
+      <input type="hidden" name="podcast_id[]" value="${id}" required>
+    </div>
+    <div class="form-group" style="margin:0;min-width:70px;max-width:110px">
+      <label>${DDLang.t('config_podcast_episodes')}</label>
+      <input type="number" name="podcast_episodes[]" value="1" min="1" max="10">
+    </div>
+    <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
+  `;
+  const list = document.getElementById('podcast-list');
+  list.appendChild(div);
+  initDragItem(div);
+  rebuildPinSelect();
+}
+
+function addPlaylist(id = '', name = '') {
+  const i = plCount++;
+  const div = document.createElement('div');
+  div.className = 'item-entry';
+  div.id = 'pl-' + i;
+  div.innerHTML = `
+    <div class="form-group" style="margin:0">
+      <label>${DDLang.t('config_podcast_name')}</label>
+      <input type="text" name="pl_name[]" value="${name}" readonly style="background:var(--bg2,#262626);cursor:default">
+      <input type="hidden" name="pl_id[]" value="${id}">
+    </div>
+    <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
+  `;
+  document.getElementById('playlist-list').appendChild(div);
+}
+
+function clearTargetPlaylist() {
+  document.getElementById('target_playlist_id').value = '';
+  document.getElementById('target-playlist-card').style.display = 'none';
+  document.getElementById('target-playlist-empty').style.display = 'block';
+}
+
+function setTargetPlaylist(id, name, image) {
+  document.getElementById('target_playlist_id').value = id;
+  document.getElementById('target-playlist-name').textContent = name;
+  const img = document.getElementById('target-playlist-img');
+  if (image) { img.src = image; img.style.display = 'block'; }
+  else { img.style.display = 'none'; }
+  document.getElementById('target-playlist-card').style.display = 'flex';
+  document.getElementById('target-playlist-empty').style.display = 'none';
+}
+
+// On page load: fetch Spotify name for the already-saved playlist ID
+(async function loadTargetPlaylistInfo() {
+  const id = document.getElementById('target_playlist_id').value;
+  if (!id) return;
+  try {
+    const resp = await fetch('/api/playlist-info/' + encodeURIComponent(id));
+    if (!resp.ok) return; // leave raw ID as fallback
+    const data = await resp.json();
+    setTargetPlaylist(data.id, data.name, data.image);
+  } catch(e) { /* silent — raw ID stays as fallback */ }
+})();
+
+// Spotify Picker Modal JS
+let currentPickerType = 'show'; // 'show' or 'playlist'
+let currentPickerTab  = 'library'; // 'library' or 'search'
+
+function openPicker(type) {
+  currentPickerType = type;
+  currentPickerTab = 'library';
+
+  const titleEl = document.getElementById('picker-title');
+  if (type === 'show') {
+    titleEl.innerHTML = DDLang.t('config_section_podcasts') + ' - ' + DDLang.t('picker_select');
+  } else {
+    titleEl.innerHTML = DDLang.t('config_playlists') + ' - ' + DDLang.t('picker_select');
+  }
+
+  // For playlists: hide Search tab — only own playlists can be read in Dev Mode
+  const isPlaylistPicker = (type === 'playlist' || type === 'target_playlist');
+  document.getElementById('tab-search').style.display = isPlaylistPicker ? 'none' : '';
+
+  document.getElementById('picker-search-input').value = '';
+  document.getElementById('tab-library').classList.add('active');
+  document.getElementById('tab-search').classList.remove('active');
+  document.getElementById('picker-search-container').style.display = 'none';
+  document.getElementById('spotify-picker').classList.add('show');
+  
+  loadLibraryData();
+}
+
+function closePicker() {
+  document.getElementById('spotify-picker').classList.remove('show');
+}
+
+function switchPickerTab(tab) {
+  currentPickerTab = tab;
+  document.getElementById('tab-library').classList.toggle('active', tab === 'library');
+  document.getElementById('tab-search').classList.toggle('active', tab === 'search');
+  
+  const searchContainer = document.getElementById('picker-search-container');
+  if (tab === 'search') {
+    searchContainer.style.display = 'flex';
+    document.getElementById('picker-results').innerHTML = '';
+    document.getElementById('picker-empty').style.display = 'none';
+    document.getElementById('picker-search-input').focus();
+  } else {
+    searchContainer.style.display = 'none';
+    loadLibraryData();
+  }
+}
+
+async function loadLibraryData() {
+  const resultsGrid = document.getElementById('picker-results');
+  const loadingEl = document.getElementById('picker-loading');
+  const emptyEl = document.getElementById('picker-empty');
+
+  resultsGrid.innerHTML = '';
+  loadingEl.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  try {
+    const apiType = currentPickerType === 'show' ? 'show' : 'playlist';
+    const endpoint = apiType === 'show' ? '/api/user-podcasts' : '/api/user-playlists';
+    const resp = await fetch(endpoint);
+    if (!resp.ok) throw new Error('API error');
+    
+    const items = await resp.json();
+    loadingEl.style.display = 'none';
+
+    if (!items || items.length === 0) {
+      emptyEl.style.display = 'block';
+      return;
+    }
+
+    renderPickerItems(items);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    resultsGrid.innerHTML = `<p style="color: var(--red); text-align: center; padding: 1rem;">Failed to load library items: ${e.message}</p>`;
+  }
+}
+
+async function performPickerSearch() {
+  const query = document.getElementById('picker-search-input').value.trim();
+  if (!query) return;
+
+  const resultsGrid = document.getElementById('picker-results');
+  const loadingEl = document.getElementById('picker-loading');
+  const emptyEl = document.getElementById('picker-empty');
+
+  resultsGrid.innerHTML = '';
+  loadingEl.style.display = 'block';
+  emptyEl.style.display = 'none';
+
+  try {
+    const apiType = currentPickerType === 'show' ? 'show' : 'playlist';
+    const resp = await fetch(`/api/search?type=${apiType}&q=${encodeURIComponent(query)}`);
+    if (!resp.ok) throw new Error('API error');
+    
+    const items = await resp.json();
+    loadingEl.style.display = 'none';
+
+    if (!items || items.length === 0) {
+      emptyEl.style.display = 'block';
+      return;
+    }
+
+    renderPickerItems(items);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    resultsGrid.innerHTML = `<p style="color: var(--red); text-align: center; padding: 1rem;">Search failed: ${e.message}</p>`;
+  }
+}
+
+function renderPickerItems(items) {
+  const resultsGrid = document.getElementById('picker-results');
+  resultsGrid.innerHTML = '';
+
+  items.forEach(item => {
+    const card = document.createElement('div');
+    const isPlaylist = currentPickerType === 'playlist' || currentPickerType === 'target_playlist';
+    const isForeign = isPlaylist && item.is_own === false;
+    card.className = 'picker-result-card' + (isForeign ? ' picker-result-disabled' : '');
+    const imageUrl = item.images && item.images.length > 0 ? item.images[item.images.length - 1].url : '/img/bob/standing.png';
+    if (!isForeign) {
+      card.onclick = () => selectPickerItem(item.id, item.name, imageUrl);
+    }
+    const subtext = (currentPickerType === 'show') ? item.publisher : item.owner;
+
+    const warningHtml = isForeign ? `
+      <div class="picker-foreign-warning" title="Diese Playlist gehört einem anderen Nutzer. Im Spotify Dev Mode können nur eigene Playlists gelesen werden.">
+        ⚠️ Nicht deine Playlist
+      </div>` : '';
+
+    card.innerHTML = `
+      <img src="${imageUrl}" alt="${item.name}">
+      <div class="picker-result-info">
+        <div class="picker-result-name">${item.name}</div>
+        <div class="picker-result-subtext">${subtext || ''}</div>
+        ${warningHtml}
+      </div>
+      <button type="button" class="btn btn-ghost select-btn" ${isForeign ? 'disabled title="Nur eigene Playlists können als Musikquelle verwendet werden"' : ''}>${DDLang.t('picker_add') || 'Hinzufügen'}</button>
+    `;
+
+    resultsGrid.appendChild(card);
+  });
+}
+
+function selectPickerItem(id, name, image) {
+  if (currentPickerType === 'show') {
+    addPodcast(id, name);
+  } else if (currentPickerType === 'target_playlist') {
+    setTargetPlaylist(id, name, image);
+  } else {
+    addPlaylist(id, name);
+  }
+  closePicker();
+}
+</script>

@@ -41,7 +41,10 @@ config.local.*
 *secrets*
 !config.example.yaml
 
-# --- State & Runtime Data ---
+# --- Local dev data directory ---
+data/
+
+# --- State # --- State & Runtime Data --- Runtime Data ---
 state.json
 *.state
 cursors.json

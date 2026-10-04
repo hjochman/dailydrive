@@ -12,9 +12,10 @@ const fs = require("fs");
 const yaml = require("js-yaml");
 const SpotifyWebApi = require("spotify-web-api-node");
 const express = require("express");
+const { PATHS, resolveSpotifyCredentials } = require("./paths");
 
-const TOKEN_FILE = ".spotify-token.json";
-const CONFIG_FILE = "config.yaml";
+const TOKEN_FILE = PATHS.TOKEN_FILE;
+const CONFIG_FILE = PATHS.CONFIG_FILE;
 
 // --- Clear any existing token to force fresh auth ---
 if (fs.existsSync(TOKEN_FILE)) {
@@ -22,16 +23,18 @@ if (fs.existsSync(TOKEN_FILE)) {
   console.log("🗑️  Deleted old token — starting fresh auth");
 }
 
-// --- Load config ---
-if (!fs.existsSync(CONFIG_FILE)) {
-  console.error("\n❌ config.yaml not found!");
+// --- Load config (optional when env vars are set) ---
+let fileConfig = {};
+if (fs.existsSync(CONFIG_FILE)) {
+  fileConfig = yaml.load(fs.readFileSync(CONFIG_FILE, "utf8")) || {};
+} else if (!process.env.SPOTIFY_CLIENT_ID) {
+  console.error("\n❌ config.yaml not found and SPOTIFY_CLIENT_ID env var is not set!");
   console.error("   Run: cp config.example.yaml config.yaml");
-  console.error("   Then fill in your Spotify credentials.\n");
+  console.error("   Or set SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET, SPOTIFY_REDIRECT_URI env vars.\n");
   process.exit(1);
 }
 
-const config = yaml.load(fs.readFileSync(CONFIG_FILE, "utf8"));
-const { client_id, client_secret, redirect_uri } = config.spotify;
+const { client_id, client_secret, redirect_uri } = resolveSpotifyCredentials(fileConfig.spotify || {});
 
 if (
   !client_id ||
@@ -59,6 +62,7 @@ const SCOPES = [
   "user-read-private",
   "user-read-recently-played",
   "user-top-read",
+  "ugc-image-upload",
 ];
 
 // --- Start a tiny web server to catch the callback ---
