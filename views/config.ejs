@@ -208,8 +208,8 @@
       <input type="text" name="mix_pattern" value="<%= config.mix_pattern || 'PMMMM' %>" placeholder="PMMMM">
     </div>
     <div class="form-group">
-      <label data-i18n="config_refresh_interval">Refresh interval (hours)</label>
-      <input type="number" name="refresh_interval" value="<%= refreshInterval %>" min="1" max="168">
+      <label data-i18n="config_refresh_interval">Refresh interval (e.g. 30m, 1h, 24h)</label>
+      <input type="text" name="refresh_interval" value="<%= refreshInterval %>" placeholder="e.g. 30m, 1h, 24h">
     </div>
   </div>
 

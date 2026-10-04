@@ -26,13 +26,40 @@ const { main: runRefresh, setLogger: setIndexLogger } = require("./index");
 // ---------------------------------------------------------------------------
 
 const WEB_PORT         = parseInt(process.env.WEB_PORT  || "8080", 10);
-const REFRESH_INTERVAL_HOURS_DEFAULT = parseInt(process.env.REFRESH_INTERVAL_HOURS || "24", 10);
-// Priority: config.yaml > REFRESH_INTERVAL_HOURS env var > 24
-const getRefreshH = () => {
+const REFRESH_INTERVAL_DEFAULT = "24h";
+
+// Helper to parse interval strings like "30m", "1h", "2h", or plain numbers (treated as hours or minutes if formatted)
+function parseIntervalToMinutes(val) {
+  if (val == null) return 24 * 60;
+  const str = String(val).trim().toLowerCase();
+  if (!str) return 24 * 60;
+
+  const match = str.match(/^(\d+(?:\.\d+)?)\s*(m|min|minute|minutes|h|hr|hour|hours|d|day|days)?$/);
+  if (!match) {
+    const num = parseFloat(str);
+    return isNaN(num) || num <= 0 ? 24 * 60 : Math.round(num * 60);
+  }
+
+  const num = parseFloat(match[1]);
+  const unit = match[2] || "h"; // default unit is hours if not specified
+
+  if (unit.startsWith("m")) {
+    return Math.max(1, Math.round(num));
+  } else if (unit.startsWith("d")) {
+    return Math.max(1, Math.round(num * 24 * 60));
+  } else {
+    // hours
+    return Math.max(1, Math.round(num * 60));
+  }
+}
+
+// Priority: config.yaml > REFRESH_INTERVAL_HOURS / REFRESH_INTERVAL env var > default
+const getRefreshIntervalStr = () => {
   const fromConfig = loadConfig().refresh_interval;
-  if (fromConfig) return parseInt(fromConfig, 10);
-  return parseInt(process.env.REFRESH_INTERVAL_HOURS || String(REFRESH_INTERVAL_HOURS_DEFAULT), 10);
+  if (fromConfig != null && String(fromConfig).trim() !== "") return String(fromConfig).trim();
+  return process.env.REFRESH_INTERVAL || process.env.REFRESH_INTERVAL_HOURS || REFRESH_INTERVAL_DEFAULT;
 };
+
 const SHOW_LAN_WARNING = process.env.SHOW_LAN_WARNING !== "false";
 
 // Ensure log directory exists (best-effort — may fail if the mounted /data
@@ -136,20 +163,32 @@ let _lastRefreshTime = null;
  * Works correctly immediately after server start (no prior run needed).
  */
 function nextRefreshDate() {
-  const now   = new Date();
-  const hours = Math.max(1, Math.min(168, getRefreshH()));
+  const now = new Date();
+  const totalMinutes = parseIntervalToMinutes(getRefreshIntervalStr());
   let next;
 
-  if (hours === 24) {
+  if (totalMinutes === 24 * 60) {
     // daily at 04:00
     next = new Date(now);
     next.setHours(4, 0, 0, 0);
     if (next <= now) next.setDate(next.getDate() + 1);
-  } else if (hours < 24) {
-    // every N hours at :00 — find the next :00 boundary that is >= (now + N h)
-    // cron `0 */N * * *` fires at 0:00, N:00, 2N:00, …
+  } else if (totalMinutes < 60) {
+    // Under 1 hour: cron `*/M * * * *` (e.g. */30)
+    const currentMin = now.getMinutes();
+    const nextMin = (Math.floor(currentMin / totalMinutes) + 1) * totalMinutes;
+    next = new Date(now);
+    next.setSeconds(0, 0);
+    if (nextMin >= 60) {
+      next.setHours(next.getHours() + 1);
+      next.setMinutes(nextMin % 60);
+    } else {
+      next.setMinutes(nextMin);
+    }
+  } else if (totalMinutes < 24 * 60) {
+    // Every N hours
+    const hours = Math.round(totalMinutes / 60);
     const currentHour = now.getHours();
-    const nextHour = Math.ceil((currentHour + 1) / hours) * hours;
+    const nextHour = (Math.floor(currentHour / hours) + 1) * hours;
     next = new Date(now);
     next.setMinutes(0, 0, 0);
     if (nextHour >= 24) {
@@ -159,8 +198,8 @@ function nextRefreshDate() {
       next.setHours(nextHour);
     }
   } else {
-    // every ceil(N/24) days at 04:00
-    const days = Math.round(hours / 24);
+    // >= 24h: every N days at 04:00
+    const days = Math.round(totalMinutes / (24 * 60));
     next = new Date(now);
     next.setHours(4, 0, 0, 0);
     next.setDate(next.getDate() + days);
@@ -610,7 +649,7 @@ app.get("/config", (req, res) => {
     config,
     redirectUri:     process.env.SPOTIFY_REDIRECT_URI ||
                      `http://${req.headers.host}/callback`,
-    refreshInterval: config.refresh_interval || getRefreshH(),
+    refreshInterval: config.refresh_interval != null ? config.refresh_interval : getRefreshIntervalStr(),
     saved:           req.query.saved === "1",
     fromSetup:       req.query.setup === "1",
     flash:           configErrorFlash,
@@ -650,7 +689,9 @@ app.post("/config", (req, res) => {
       shuffle:     b.shuffle === "1",
     },
     mix_pattern:      (b.mix_pattern || "PMMMM").trim().toUpperCase(),
-    refresh_interval: parseInt(b.refresh_interval, 10) || existing.refresh_interval || 24,
+    refresh_interval: (b.refresh_interval != null && String(b.refresh_interval).trim() !== "")
+      ? String(b.refresh_interval).trim()
+      : (existing.refresh_interval || "24h"),
     schedule:         existing.schedule || {},
   };
 
@@ -684,13 +725,14 @@ app.post("/config", (req, res) => {
     cfg.music.playlists.push({ id: id.trim(), name: (plNames[i] || "").trim() || id.trim() });
   });
 
-  const prevH = getRefreshH();
+  const prevInterval = getRefreshIntervalStr();
   saveConfig(cfg);
 
   // Restart scheduler if refresh interval changed
-  const newH = cfg.refresh_interval;
-  if (newH !== prevH) {
-    process.env.REFRESH_INTERVAL_HOURS = String(newH);
+  const newInterval = String(cfg.refresh_interval);
+  if (newInterval !== prevInterval) {
+    process.env.REFRESH_INTERVAL = newInterval;
+    process.env.REFRESH_INTERVAL_HOURS = newInterval;
     startScheduler();
   }
 
@@ -924,23 +966,31 @@ function startScheduler() {
     _schedulerTask.stop();
     _schedulerTask = null;
   }
-  // Convert REFRESH_INTERVAL_HOURS to a cron expression
-  // Simple approach: run every N hours at :00
-  const hours = Math.max(1, Math.min(168, getRefreshH()));
+  const intervalStr = getRefreshIntervalStr();
+  const totalMinutes = parseIntervalToMinutes(intervalStr);
 
   let cronExpr;
-  if (hours === 24) {
+  let desc;
+
+  if (totalMinutes < 60) {
+    // Under 1 hour (e.g. 30m)
+    const mins = totalMinutes;
+    cronExpr = `*/${mins} * * * *`;
+    desc = `every ${mins}m`;
+  } else if (totalMinutes === 24 * 60) {
     cronExpr = "0 4 * * *"; // daily at 04:00
-  } else if (hours >= 1 && hours < 24) {
-    // Every N hours
+    desc = "daily at 04:00";
+  } else if (totalMinutes < 24 * 60) {
+    const hours = Math.round(totalMinutes / 60);
     cronExpr = `0 */${hours} * * *`;
+    desc = `every ${hours}h`;
   } else {
-    // > 24h: approximate (every N/24 days at 04:00)
-    const days = Math.round(hours / 24);
+    const days = Math.round(totalMinutes / (24 * 60));
     cronExpr = `0 4 */${days} * *`;
+    desc = `every ${days}d at 04:00`;
   }
 
-  logLine(`⏰ Scheduler starting — cron: "${cronExpr}" (every ${hours}h)`);
+  logLine(`⏰ Scheduler starting — cron: "${cronExpr}" (${desc}, configured: "${intervalStr}")`);
 
   _schedulerTask = cron.schedule(cronExpr, async () => {
     if (_refreshRunning) {
@@ -968,7 +1018,7 @@ function startScheduler() {
 app.listen(WEB_PORT, "0.0.0.0", () => {
   logLine(`🚀 Daily Drive by IBM Bob — Web UI started on port ${WEB_PORT}`);
   logLine(`   Data directory : ${PATHS.DATA_DIR}`);
-  logLine(`   Refresh every  : ${getRefreshH()} hour(s)`);
+  logLine(`   Refresh interval: ${getRefreshIntervalStr()}`);
 
   // Start background token refresh daemon (check every 30 min)
   tokenManager.startTokenRefreshDaemon(30 * 60 * 1000);

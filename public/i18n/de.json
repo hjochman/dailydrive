@@ -106,7 +106,7 @@
   "config_section_music": "Musik",
   "config_section_schedule": "Zeitplan",
   "config_mix_pattern": "Mix-Muster (P = Podcast, M = Musik)",
-  "config_refresh_interval": "Aktualisierungsintervall (Stunden)",
+  "config_refresh_interval": "Aktualisierungsintervall (z. B. 30m, 1h, 24h)",
   "config_add_podcast": "Podcast hinzufügen",
   "config_remove": "Entfernen",
   "config_podcast_name": "Name",
