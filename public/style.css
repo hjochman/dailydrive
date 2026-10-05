@@ -308,6 +308,32 @@ a:hover { text-decoration: underline; }
   margin-right: 0.4rem;
 }
 
+.quota-warning-banner {
+  background: #2d0a0a;
+  border-bottom: 2px solid #fa4d56;
+  color: #ffb3b8;
+  font-size: 0.85rem;
+  font-weight: 500;
+  text-align: center;
+  padding: 0.55rem 1rem;
+  letter-spacing: 0.01em;
+  line-height: 1.5;
+}
+
+.quota-warning-banner strong {
+  color: #fa4d56;
+}
+
+.quota-warning-icon {
+  margin-right: 0.5rem;
+}
+
+.quota-retry-time {
+  font-weight: 700;
+  color: #fff;
+  margin: 0 0.2rem;
+}
+
 /* =============================================================================
    Main Content
    ============================================================================= */
@@ -418,6 +444,11 @@ h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
   font-size: 0.8rem;
   font-weight: 500;
   color: var(--text);
+}
+
+.stat-date-error {
+  color: var(--red, #fa4d56);
+  cursor: help; /* tooltip hint via title attribute */
 }
 
 /* =============================================================================

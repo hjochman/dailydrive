@@ -17,7 +17,9 @@
     </div>
     <div class="stat-item">
       <span class="stat-label" data-i18n="dash_check_token">Token</span>
-      <% if (status.tokenValid) { %>
+      <% if (status.quotaActive) { %>
+        <span class="badge badge-warn" data-i18n="dash_status_quota">Rate limited</span>
+      <% } else if (status.tokenValid) { %>
         <span class="badge badge-ok">OK</span>
       <% } else { %>
         <span class="badge badge-error" data-i18n="dash_status_no_token">Not authenticated</span>
@@ -34,7 +36,13 @@
     <% } %>
     <div class="stat-item">
       <span class="stat-label" data-i18n="dash_last_refresh">Last refresh</span>
-      <span class="stat-date" data-timestamp="<%= state.last_updated || '' %>"><%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %></span>
+      <% if (lastRefreshError) { %>
+        <span class="stat-date stat-date-error" data-timestamp="<%= state.last_updated || '' %>" title="<%= lastRefreshError %>">
+          ❌ <%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %>
+        </span>
+      <% } else { %>
+        <span class="stat-date" data-timestamp="<%= state.last_updated || '' %>"><%= state.last_updated ? new Date(state.last_updated).toLocaleString() : '—' %></span>
+      <% } %>
     </div>
     <div class="stat-item">
       <span class="stat-label" data-i18n="dash_next_refresh">Next refresh</span>
@@ -43,7 +51,8 @@
   </div>
 </div>
 
-<!-- Actions -->
+<!-- Setup checklist — only shown while setup is incomplete -->
+<% if (!(status.hasCredentials && status.tokenValid && status.hasPlaylist && status.hasPodcasts)) { %>
 <div class="card">
   <div class="card-title" data-i18n="dash_checklist_title">Setup status</div>
   <ul class="checklist">
@@ -65,6 +74,7 @@
     </li>
   </ul>
 </div>
+<% } %>
 
 <% if (!status.tokenValid && status.hasCredentials) { %>
 <div class="alert alert-warn" style="margin-bottom:1rem">
@@ -75,7 +85,7 @@
 
 <div class="btn-row">
   <% if (status.tokenValid && status.hasPlaylist) { %>
-    <button id="btn-refresh" class="btn btn-primary" onclick="triggerRefresh()">
+    <button id="btn-refresh" class="btn btn-primary" onclick="triggerRefresh()" <%= status.quotaActive ? 'disabled title="Spotify rate limit active"' : '' %>>
       <span data-i18n="dash_refresh_now">Refresh now</span>
     </button>
   <% } %>
@@ -178,6 +188,9 @@ async function triggerRefresh() {
     const res = await fetch('/refresh', { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
+      location.reload();
+    } else if (res.status === 429) {
+      // Spotify rate limit — reload so the quota banner appears
       location.reload();
     } else {
       location.href = '/logs?error=' + encodeURIComponent(data.error || 'Refresh failed');

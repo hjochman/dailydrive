@@ -34,6 +34,19 @@ const PODCAST_ONLY = process.argv.includes("--podcast-only"); // Hourly mode: on
 let log    = (...a) => console.log(...a);
 let logErr = (...a) => console.error(...a);
 
+// ---------------------------------------------------------------------------
+// SpotifyQuotaError — thrown when Spotify returns 429 Too Many Requests.
+// Carries the retryAfter value (seconds) from the Retry-After response header
+// so callers can schedule the next attempt correctly.
+// ---------------------------------------------------------------------------
+class SpotifyQuotaError extends Error {
+  constructor(retryAfterSeconds) {
+    super(`Spotify rate limit hit — retry after ${retryAfterSeconds}s`);
+    this.name = "SpotifyQuotaError";
+    this.retryAfter = retryAfterSeconds; // seconds to wait
+  }
+}
+
 function setLogger(fn) { log = fn; logErr = fn; }
 
 // =============================================================================
@@ -491,6 +504,11 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
     body: JSON.stringify({ uris: uris.slice(0, 100) }),
   });
   if (!clearRes.ok) {
+    if (clearRes.status === 429) {
+      const retryAfter = parseInt(clearRes.headers.get("Retry-After") || "60", 10);
+      logErr(`⏳ Spotify rate limit (429) — Retry-After: ${retryAfter}s`);
+      throw new SpotifyQuotaError(retryAfter);
+    }
     const err = await clearRes.text();
     throw new Error(`Failed to update playlist: ${clearRes.status} ${err}`);
   }
@@ -504,6 +522,11 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
       body: JSON.stringify({ uris: batch }),
     });
     if (!addRes.ok) {
+      if (addRes.status === 429) {
+        const retryAfter = parseInt(addRes.headers.get("Retry-After") || "60", 10);
+        logErr(`⏳ Spotify rate limit (429) — Retry-After: ${retryAfter}s`);
+        throw new SpotifyQuotaError(retryAfter);
+      }
       const err = await addRes.text();
       throw new Error(`Failed to add batch: ${addRes.status} ${err}`);
     }
@@ -685,7 +708,7 @@ async function fetchAllMusicTracks(spotifyApi, config) {
 
 // Export main() so server.js can call it programmatically.
 // When this file is run directly (CLI), also execute main() immediately.
-module.exports = { main, setLogger };
+module.exports = { main, setLogger, SpotifyQuotaError };
 
 if (require.main === module) {
   main().catch((err) => {

@@ -19,7 +19,7 @@ const SpotifyWebApi = require("spotify-web-api-node");
 
 const { PATHS, resolveSpotifyCredentials } = require("./paths");
 const tokenManager = require("./token-manager");
-const { main: runRefresh, setLogger: setIndexLogger } = require("./index");
+const { main: runRefresh, setLogger: setIndexLogger, SpotifyQuotaError } = require("./index");
 
 // ---------------------------------------------------------------------------
 // Config
@@ -111,13 +111,17 @@ function getAppStatus() {
   const config       = loadConfig();
   const creds        = resolveSpotifyCredentials(config.spotify || {});
   const tokenStatus  = tokenManager.getTokenStatus();
+  const now = new Date();
+  const quotaActive = !!(_quotaRetryAfter && _quotaRetryAfter > now);
   return {
-    hasCredentials: !!(creds.client_id && creds.client_secret),
-    tokenValid:     tokenStatus.valid,
-    expiresAt:      tokenStatus.expiresAt,
-    hasRefreshToken:tokenStatus.hasRefreshToken,
-    hasPlaylist:    !!(config.playlist_id && config.playlist_id !== "your-playlist-id-here"),
-    hasPodcasts:    !!(config.podcasts && config.podcasts.length > 0),
+    hasCredentials:  !!(creds.client_id && creds.client_secret),
+    tokenValid:      tokenStatus.valid,
+    expiresAt:       tokenStatus.expiresAt,
+    hasRefreshToken: tokenStatus.hasRefreshToken,
+    hasPlaylist:     !!(config.playlist_id && config.playlist_id !== "your-playlist-id-here"),
+    hasPodcasts:     !!(config.podcasts && config.podcasts.length > 0),
+    quotaActive,
+    quotaRetryAfter: quotaActive ? _quotaRetryAfter : null,
   };
 }
 
@@ -156,6 +160,75 @@ function getRedirectUri(req) {
 // ---------------------------------------------------------------------------
 
 let _lastRefreshTime = null;
+let _lastRefreshError = null; // string | null — error message of the most recent failed refresh
+
+// When Spotify returns 429, we store the earliest time we may retry here.
+// The scheduler and manual refresh both check this before running.
+let _quotaRetryAfter = null; // Date | null
+
+// One-shot setTimeout that fires 10 min after the quota cooldown ends,
+// in case the next regular cron slot would be after the cooldown.
+let _quotaRetryTimer = null;
+
+/**
+ * Schedules a one-shot refresh 10 minutes after the quota cooldown ends,
+ * but only if that time is AFTER the next regular cron slot (otherwise
+ * the normal scheduler will pick it up anyway).
+ */
+function scheduleQuotaRetry(retryAfterDate) {
+  // Cancel any previously scheduled quota retry
+  if (_quotaRetryTimer) {
+    clearTimeout(_quotaRetryTimer);
+    _quotaRetryTimer = null;
+  }
+
+  const fireAt = new Date(retryAfterDate.getTime() + 10 * 60 * 1000); // +10 min
+  const nextCron = nextRefreshDate();
+
+  // Only schedule if the retry time is BEFORE the next cron slot.
+  // If fireAt > nextCron, the cron will fire after the cooldown anyway — no extra timer needed.
+  if (fireAt > nextCron) {
+    logLine(`ℹ️  Next cron slot (${nextCron.toISOString()}) is already after quota cooldown — no extra timer needed`);
+    return;
+  }
+
+  const delayMs = fireAt.getTime() - Date.now();
+  logLine(`⏰ Quota retry scheduled for ${fireAt.toISOString()} (${Math.round(delayMs / 60000)} min from now)`);
+
+  _quotaRetryTimer = setTimeout(async () => {
+    _quotaRetryTimer = null;
+    if (_refreshRunning) {
+      logLine("⏭️  Quota retry skipped — refresh already running");
+      return;
+    }
+    // Double-check: quota may have been re-hit since we scheduled this
+    if (_quotaRetryAfter && _quotaRetryAfter > new Date()) {
+      logLine("⏭️  Quota retry skipped — rate limit still active");
+      return;
+    }
+    _refreshRunning = true;
+    logLine("▶️  Quota retry refresh starting…");
+    try {
+      await runRefresh();
+      _lastRefreshTime = new Date();
+      _lastRefreshError = null;
+      _quotaRetryAfter = null;
+      logLine("✅ Quota retry refresh complete");
+    } catch (err) {
+      if (err && err.name === "SpotifyQuotaError") {
+        _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
+        _lastRefreshError = err.message;
+        logLine(`⏳ Quota retry hit rate limit again — next retry at ${_quotaRetryAfter.toISOString()}`);
+        scheduleQuotaRetry(_quotaRetryAfter); // reschedule
+      } else {
+        _lastRefreshError = err.message;
+        logLine("❌ Quota retry refresh failed: " + err.message);
+      }
+    } finally {
+      _refreshRunning = false;
+    }
+  }, delayMs);
+}
 
 /**
  * Calculate the next scheduled fire time directly from REFRESH_H,
@@ -205,6 +278,13 @@ function nextRefreshDate() {
     next.setDate(next.getDate() + days);
   }
 
+  // If a quota retry timer is scheduled and its time is before the next cron slot,
+  // report that earlier time as the next refresh so the dashboard shows it correctly.
+  if (_quotaRetryTimer !== null && _quotaRetryAfter) {
+    const quotaFireAt = new Date(_quotaRetryAfter.getTime() + 10 * 60 * 1000);
+    if (quotaFireAt < next) return quotaFireAt;
+  }
+
   return next;
 }
 
@@ -217,13 +297,25 @@ function nextRefreshString() {
 // ---------------------------------------------------------------------------
 
 function render(res, view, locals) {
+  // Inject current quota state so layout.ejs can show the warning banner
+  const now = new Date();
+  const quotaActive = !!(_quotaRetryAfter && _quotaRetryAfter > now);
+  const quotaRetryAfter = quotaActive ? _quotaRetryAfter : null;
+
   // Render inner view to string, then wrap in layout
   res.render(view, locals, (err, body) => {
     if (err) {
       console.error("Render error:", err);
       return res.status(500).send("Template error: " + err.message);
     }
-    res.render("layout", { ...locals, body, title: locals.title || "Daily Drive", showLanWarning: SHOW_LAN_WARNING });
+    res.render("layout", {
+      ...locals,
+      body,
+      title: locals.title || "Daily Drive",
+      showLanWarning: SHOW_LAN_WARNING,
+      quotaActive,
+      quotaRetryAfter,
+    });
   });
 }
 
@@ -262,7 +354,8 @@ app.get("/", async (req, res) => {
   let playlistError = null;
   let isLive = false;
 
-  if (status.hasCredentials && status.hasPlaylist) {
+  // Skip live Spotify fetch while rate-limited — every request would just produce more 429s
+  if (status.hasCredentials && status.hasPlaylist && !status.quotaActive) {
     try {
       // Proactively refresh token if needed before API call
       const token = await tokenManager.refreshTokenIfNeeded();
@@ -334,6 +427,7 @@ app.get("/", async (req, res) => {
     playlistTracks,
     playlistError,
     isLive,
+    lastRefreshError: _lastRefreshError,
   });
 });
 
@@ -751,17 +845,37 @@ app.post("/refresh", async (req, res) => {
   if (_refreshRunning) {
     return res.status(400).json({ ok: false, error: "Refresh already running" });
   }
+  // Block manual refresh while Spotify rate-limit is still active
+  if (_quotaRetryAfter && _quotaRetryAfter > new Date()) {
+    return res.status(429).json({
+      ok: false,
+      error: "Spotify rate limit active",
+      retryAfter: _quotaRetryAfter,
+    });
+  }
   _refreshRunning = true;
 
   try {
     logLine("▶️  Manual playlist refresh triggered via web UI");
     await runRefresh();
     _lastRefreshTime = new Date();
+    _lastRefreshError = null;
+    _quotaRetryAfter = null;
+    if (_quotaRetryTimer) { clearTimeout(_quotaRetryTimer); _quotaRetryTimer = null; }
     logLine("✅ Manual refresh complete");
     res.json({ ok: true });
   } catch (err) {
-    logLine("❌ Manual refresh failed: " + err.message);
-    res.status(500).json({ ok: false, error: err.message });
+    if (err && err.name === "SpotifyQuotaError") {
+      _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
+      _lastRefreshError = err.message;
+      logLine(`⏳ Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
+      scheduleQuotaRetry(_quotaRetryAfter);
+      res.status(429).json({ ok: false, error: err.message, retryAfter: _quotaRetryAfter });
+    } else {
+      _lastRefreshError = err.message;
+      logLine("❌ Manual refresh failed: " + err.message);
+      res.status(500).json({ ok: false, error: err.message });
+    }
   } finally {
     _refreshRunning = false;
   }
@@ -997,14 +1111,30 @@ function startScheduler() {
       logLine("⏭️  Skipping scheduled refresh — already running");
       return;
     }
+    // Honour Spotify Retry-After: skip this scheduled slot if we're still in cooldown
+    if (_quotaRetryAfter && _quotaRetryAfter > new Date()) {
+      logLine(`⏭️  Skipping scheduled refresh — Spotify rate limit active until ${_quotaRetryAfter.toISOString()}`);
+      return;
+    }
     _refreshRunning = true;
     try {
       logLine("▶️  Scheduled playlist refresh starting…");
       await runRefresh();
       _lastRefreshTime = new Date();
+      _lastRefreshError = null;
+      _quotaRetryAfter = null;
+      if (_quotaRetryTimer) { clearTimeout(_quotaRetryTimer); _quotaRetryTimer = null; }
       logLine("✅ Scheduled refresh complete");
     } catch (err) {
-      logLine("❌ Scheduled refresh failed: " + err.message);
+      if (err && err.name === "SpotifyQuotaError") {
+        _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
+        _lastRefreshError = err.message;
+        logLine(`⏳ Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
+        scheduleQuotaRetry(_quotaRetryAfter);
+      } else {
+        _lastRefreshError = err.message;
+        logLine("❌ Scheduled refresh failed: " + err.message);
+      }
     } finally {
       _refreshRunning = false;
     }
