@@ -185,9 +185,10 @@ function scheduleQuotaRetry(retryAfterDate) {
   const fireAt = new Date(retryAfterDate.getTime() + 10 * 60 * 1000); // +10 min
   const nextCron = nextRefreshDate();
 
-  // Only schedule if the quota cooldown extends past the next cron slot
-  if (fireAt <= nextCron) {
-    logLine(`ℹ️  Quota retry at ${fireAt.toISOString()} is before next cron slot — no extra timer needed`);
+  // Only schedule if the retry time is BEFORE the next cron slot.
+  // If fireAt > nextCron, the cron will fire after the cooldown anyway — no extra timer needed.
+  if (fireAt > nextCron) {
+    logLine(`ℹ️  Next cron slot (${nextCron.toISOString()}) is already after quota cooldown — no extra timer needed`);
     return;
   }
 
