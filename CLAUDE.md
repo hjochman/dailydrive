@@ -204,11 +204,6 @@ schedule:
 
 ## Common Tasks for AI Assistants
 
-### "Add support for liked/saved songs as a music source"
-- Use `spotifyApi.getMySavedTracks()` in `fetchMusicTracks()`
-- Add a `saved_tracks: { enabled: true, count: 50 }` option to the `music` config section
-- Paginate with offset (API returns max 50 per call)
-
 ### "Add multiple playlist targets"
 - Change `playlist_id` to an array of `playlists` in config
 - Loop over them in `main()`, each can have its own podcasts/music/pattern

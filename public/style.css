@@ -1099,6 +1099,15 @@ input[type="checkbox"] {
   to { transform: rotate(360deg); }
 }
 
+/* Taste-modal: readonly prompt textarea */
+.taste-prompt-readonly {
+  background: var(--bg2, #262626);
+  color: var(--text-muted);
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+}
+
 /* =============================================================================
    Responsive
    ============================================================================= */
