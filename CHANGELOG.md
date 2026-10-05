@@ -34,6 +34,8 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - Dashboard **last-refresh error indicator** — red timestamp with hover tooltip showing the error message
 - Dashboard setup checklist is now **hidden once setup is complete** (all four conditions met)
 - Dashboard **"Refresh now" button disabled** while rate-limit is active
+- **Genre Auto-Detect** button in the Config page Music section — fetches the user's Spotify top tracks and artists server-side, builds a ready-to-copy LLM prompt, and presents it in a modal; the user pastes it into any AI assistant (ChatGPT, Claude, Gemini, Copilot, …) and pastes the result back to apply genres directly to the config form (replace or merge, with sanitization of stray special characters)
+- `GET /api/taste-prompt` endpoint — returns a fully-formed LLM prompt built from the user's Spotify taste data (top tracks + artists across all three time ranges)
 
 ### Changed
 - Playlist item writes now use `PUT /v1/playlists/{id}/items` (replaces deprecated `/tracks` endpoint)
