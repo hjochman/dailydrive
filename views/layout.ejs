@@ -74,6 +74,20 @@
 </div>
 <% } %>
 
+<!-- ===== Spotify Quota Warning Banner ===== -->
+<% if (quotaActive && quotaRetryAfter) { %>
+<div class="quota-warning-banner">
+  <span class="quota-warning-icon">🚫</span>
+  <span>
+    <strong data-i18n="quota_banner_title">Spotify-Limit erreicht (429 Too Many Requests)</strong>
+    &nbsp;&mdash;&nbsp;
+    <span data-i18n="quota_banner_desc">Automatische Aktualisierungen werden pausiert bis</span>
+    <span class="quota-retry-time" data-timestamp="<%= quotaRetryAfter.toISOString() %>"><%= quotaRetryAfter.toLocaleString() %></span>.
+    <span data-i18n="quota_banner_reason">Grund: Spotify hat zu viele Anfragen registriert. Kein Handlungsbedarf — das nächste Update wird automatisch nach Ablauf der Wartezeit ausgeführt.</span>
+  </span>
+</div>
+<% } %>
+
 <!-- ===== Content ===== -->
 <main class="main-content">
   <%- body %>

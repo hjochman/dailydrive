@@ -29,8 +29,8 @@
   "dash_reauth_btn": "Re-authorize with Spotify",
   "dash_go_config": "Edit Configuration",
   "dash_checklist_title": "Setup Status",
-  "dash_check_credentials": "Spotify credentials",
-  "dash_check_token": "Spotify token",
+  "dash_check_credentials": "Login",
+  "dash_check_token": "Token",
   "dash_check_playlist": "Playlist ID",
   "dash_check_podcasts": "Podcasts configured",
   "dash_playlist_title": "Current Playlist Contents",
@@ -41,6 +41,11 @@
   "dash_playlist_live": "Live from Spotify",
   "dash_playlist_cached": "Cached (Offline)",
   "dash_playlist_error": "Could not fetch playlist from Spotify:",
+  "dash_status_quota": "Rate limited",
+
+  "quota_banner_title": "Spotify rate limit reached (429 Too Many Requests)",
+  "quota_banner_desc": "Automatic updates are paused until",
+  "quota_banner_reason": "Spotify has detected too many requests. No action needed — the next update will run automatically once the cooldown expires.",
 
   "setup_title": "Setup",
   "setup_intro": "I'll guide you through setting up Daily Drive step by step.",
