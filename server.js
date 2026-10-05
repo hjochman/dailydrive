@@ -1035,6 +1035,95 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
+// ── GET /api/taste-prompt  Build LLM prompt from user's Spotify taste data ────
+app.get("/api/taste-prompt", async (req, res) => {
+  try {
+    const config = loadConfig();
+    const creds  = resolveSpotifyCredentials(config.spotify || {});
+    const token  = await tokenManager.refreshTokenIfNeeded();
+
+    if (!token || !token.access_token) {
+      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
+    }
+
+    const spotifyApi = new SpotifyWebApi({
+      clientId:     creds.client_id,
+      clientSecret: creds.client_secret,
+    });
+    spotifyApi.setAccessToken(token.access_token);
+
+    const artistCounts = {};
+    const trackSamples = [];
+
+    for (const range of ["short_term", "medium_term", "long_term"]) {
+      const data = await spotifyApi.getMyTopTracks({ limit: 50, time_range: range });
+      for (const track of data.body.items) {
+        trackSamples.push({
+          name: track.name,
+          artists: track.artists.map((a) => a.name),
+        });
+        for (const artist of track.artists) {
+          artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 1;
+        }
+      }
+    }
+
+    for (const range of ["short_term", "medium_term", "long_term"]) {
+      const data = await spotifyApi.getMyTopArtists({ limit: 50, time_range: range });
+      for (const artist of data.body.items) {
+        artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 2;
+      }
+    }
+
+    const topArtists = Object.entries(artistCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 40)
+      .map(([name]) => name);
+
+    const seen = new Set();
+    const uniqueTracks = [];
+    for (const t of trackSamples) {
+      const key = `${t.name}|${t.artists[0]}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueTracks.push(t);
+      }
+    }
+
+    const artistList = topArtists.join(", ");
+    const trackList = uniqueTracks
+      .slice(0, 50)
+      .map((t) => `${t.name} — ${t.artists.join(", ")}`)
+      .join("\n");
+
+    const prompt = `Based on this Spotify listening data, generate a list of 5-8 genre/style tags that best describe this user's music taste. These tags will be used as Spotify search queries (e.g., "genre:pop") to discover new music matching their taste.
+
+Top artists (ranked by listening frequency):
+${artistList}
+
+Sample tracks:
+${trackList}
+
+Requirements:
+- Return ONLY a list of genres, one per line, nothing else
+- Use genres that work well as Spotify search queries
+- Be specific enough to be useful (e.g., "synth pop" not just "pop")
+- Cover the breadth of their taste, not just the most common genre
+- Use lowercase
+
+Example output format:
+synth pop
+indie rock
+electronic
+alt pop
+dance pop`;
+
+    res.json({ prompt, artistCount: topArtists.length, trackCount: uniqueTracks.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/playlist-info/:id  Name + image for a single playlist ────────────
 app.get("/api/playlist-info/:id", async (req, res) => {
   try {
