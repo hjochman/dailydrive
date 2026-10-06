@@ -182,13 +182,15 @@ function scheduleQuotaRetry(retryAfterDate) {
     _quotaRetryTimer = null;
   }
 
-  const fireAt = new Date(retryAfterDate.getTime() + 10 * 60 * 1000); // +10 min
+  const fireAt = new Date(retryAfterDate.getTime() + 10 * 60 * 1000); // cooldown end + 10 min
   const nextCron = nextRefreshDate();
 
-  // Only schedule if the retry time is BEFORE the next cron slot.
-  // If fireAt > nextCron, the cron will fire after the cooldown anyway — no extra timer needed.
-  if (fireAt > nextCron) {
-    logLine(`ℹ️  Next cron slot (${nextCron.toISOString()}) is already after quota cooldown — no extra timer needed`);
+  // No extra timer needed only if the next cron slot fires AFTER the cooldown ends —
+  // meaning the cron itself will run cleanly without hitting the limit.
+  // In all other cases (nextCron <= retryAfterDate) the cron would be skipped,
+  // so we must schedule the one-shot timer.
+  if (nextCron > retryAfterDate) {
+    logLine(`ℹ️  Next cron slot (${nextCron.toISOString()}) is after quota cooldown (${retryAfterDate.toISOString()}) — no extra timer needed`);
     return;
   }
 
@@ -278,11 +280,10 @@ function nextRefreshDate() {
     next.setDate(next.getDate() + days);
   }
 
-  // If a quota retry timer is scheduled and its time is before the next cron slot,
-  // report that earlier time as the next refresh so the dashboard shows it correctly.
+  // If a quota retry timer is scheduled, always show its fire time —
+  // the timer was created precisely because the next cron slot is too early.
   if (_quotaRetryTimer !== null && _quotaRetryAfter) {
-    const quotaFireAt = new Date(_quotaRetryAfter.getTime() + 10 * 60 * 1000);
-    if (quotaFireAt < next) return quotaFireAt;
+    return new Date(_quotaRetryAfter.getTime() + 10 * 60 * 1000);
   }
 
   return next;
@@ -771,7 +772,7 @@ app.post("/config", (req, res) => {
       top_tracks: {
         enabled:    b.top_tracks_enabled === "1",
         time_range: b.time_range || "short_term",
-        count:      30,
+        count:      Math.min(Math.max(parseInt(b.top_tracks_count || "30", 10) || 0, 0), 50),
       },
       saved_tracks: {
         enabled: b.saved_tracks_enabled === "1",
@@ -949,6 +950,7 @@ app.get("/api/user-playlists", async (req, res) => {
       owner: item.owner?.display_name,
       owner_id: item.owner?.id,
       is_own: item.owner?.id === myUserId,
+      tracks_total: item.tracks?.total != null ? item.tracks.total : (item.items?.total != null ? item.items.total : 0),
     }));
 
     res.json(playlists);
@@ -1132,16 +1134,17 @@ app.get("/api/playlist-info/:id", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const apiRes = await fetch(
-      `https://api.spotify.com/v1/playlists/${req.params.id}?fields=id,name,images,owner`,
+      `https://api.spotify.com/v1/playlists/${req.params.id}?fields=id,name,images,owner,tracks.total`,
       { headers: { Authorization: `Bearer ${token.access_token}` } }
     );
     if (!apiRes.ok) return res.status(apiRes.status).json({ error: "Spotify API error" });
     const data = await apiRes.json();
     res.json({
-      id:    data.id,
-      name:  data.name,
-      image: data.images?.[0]?.url || null,
-      owner: data.owner?.display_name || null,
+      id:           data.id,
+      name:         data.name,
+      image:        data.images?.[0]?.url || null,
+      owner:        data.owner?.display_name || null,
+      tracks_total: data.tracks?.total != null ? data.tracks.total : 0,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

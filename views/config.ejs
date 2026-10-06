@@ -136,37 +136,11 @@
   <div class="card">
     <div class="card-title" data-i18n="config_section_music">Music</div>
 
+    <!-- Total Songs & Shuffle -->
     <div class="form-group">
-      <div class="checkbox-row">
-        <input type="checkbox" id="top_tracks_enabled" name="top_tracks_enabled" value="1"
-               <%= (config.music && config.music.top_tracks && config.music.top_tracks.enabled) ? 'checked' : '' %>>
-        <label for="top_tracks_enabled" style="text-transform:none;letter-spacing:0" data-i18n="config_top_tracks">Enable top tracks</label>
-      </div>
-    </div>
-    <div class="form-group">
-      <label data-i18n="config_time_range">Time range</label>
-      <select name="time_range">
-        <% const tr = config.music && config.music.top_tracks && config.music.top_tracks.time_range || 'short_term'; %>
-        <option value="short_term"  <%= tr === 'short_term'  ? 'selected' : '' %> data-i18n="config_time_range_short">Last month</option>
-        <option value="medium_term" <%= tr === 'medium_term' ? 'selected' : '' %> data-i18n="config_time_range_medium">Last 6 months</option>
-        <option value="long_term"   <%= tr === 'long_term'   ? 'selected' : '' %> data-i18n="config_time_range_long">All time</option>
-      </select>
-    </div>
-    <div class="form-group">
-      <div class="checkbox-row">
-        <input type="checkbox" id="saved_tracks_enabled" name="saved_tracks_enabled" value="1"
-               <%= (config.music && config.music.saved_tracks && config.music.saved_tracks.enabled) ? 'checked' : '' %>>
-        <label for="saved_tracks_enabled" style="text-transform:none;letter-spacing:0" data-i18n="config_saved_tracks">Enable liked/saved songs</label>
-      </div>
-    </div>
-    <div class="form-group">
-      <label data-i18n="config_saved_tracks_count">Saved songs fetch count</label>
-      <input type="number" name="saved_tracks_count" value="<%= config.music && config.music.saved_tracks && config.music.saved_tracks.count || 50 %>" min="1" max="500">
-    </div>
-    <div class="form-group">
-      <label data-i18n="config_total_songs">Total songs</label>
-      <input type="number" name="total_songs" value="<%= config.music && config.music.total_songs || 15 %>" min="1" max="200">
-      <p class="field-hint" data-i18n="config_total_songs_hint">Target number of songs in the playlist. If genres are specified, 50% comes from familiar sources (playlists / likes / top tracks) and 50% from genre discovery search.</p>
+      <label data-i18n="config_total_songs">Target songs in playlist</label>
+      <input type="number" id="total_songs" name="total_songs" value="<%= config.music && config.music.total_songs || 15 %>" min="1" max="200" oninput="updateMusicComposition()">
+      <p class="field-hint" data-i18n="config_total_songs_hint">Total target number of music tracks in your playlist.</p>
     </div>
     <div class="form-group">
       <div class="checkbox-row">
@@ -175,29 +149,129 @@
         <label for="shuffle" style="text-transform:none;letter-spacing:0" data-i18n="config_shuffle">Shuffle songs</label>
       </div>
     </div>
-    <div class="form-group">
-      <label data-i18n="config_genres">Genre tags (comma-separated)</label>
-      <input type="text" name="genres" value="<%= config.music && config.music.genres ? config.music.genres.join(', ') : '' %>" placeholder="pop, indie rock, electronic">
-      <p class="field-hint" data-i18n="config_genres_hint">Separate genres with commas or semicolons (e.g. pop, dance, indie). Note: Spotify returns up to 10 discovery tracks per genre search.</p>
-      <button type="button" class="btn btn-secondary" onclick="openTasteModal()" data-i18n="config_genres_auto_detect">🎵 Auto-Detect Genres</button>
+
+    <!-- Live Composition & Percentage Breakdown Preview -->
+    <div id="music-composition-box" style="background:var(--surface-2,#262626);border:1px solid var(--border);border-radius:6px;padding:1rem;margin:1.25rem 0;">
+      <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.25rem;display:flex;align-items:center;gap:0.5rem;" data-i18n="config_music_distribution_title">
+        📊 Voraussichtliche Zusammensetzung der Playlist
+      </div>
+      <p class="field-hint" style="margin-bottom:0.75rem;" data-i18n="config_music_distribution_desc">
+        Übersicht, wie sich deine Zielanzahl an Songs aus den vertrauten Quellen und der Genre-Entdeckung zusammensetzt:
+      </p>
+
+      <!-- 50/50 Split Progress Bar -->
+      <div style="display:flex;height:24px;border-radius:4px;overflow:hidden;background:#111;margin-bottom:0.75rem;border:1px solid rgba(255,255,255,0.1);font-size:0.75rem;font-weight:600;line-height:24px;text-align:center;">
+        <div id="bar-familiar" style="background:var(--accent,#0f62fe);color:#fff;transition:width 0.3s ease;white-space:nowrap;overflow:hidden;padding:0 4px;">50%</div>
+        <div id="bar-discovery" style="background:#8a3ffc;color:#fff;transition:width 0.3s ease;white-space:nowrap;overflow:hidden;padding:0 4px;">50%</div>
+      </div>
+
+      <!-- Main ratio summary -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;font-size:0.85rem;margin-bottom:0.75rem;">
+        <div style="background:rgba(15,98,254,0.12);border:1px solid rgba(15,98,254,0.3);border-radius:4px;padding:0.5rem 0.75rem;">
+          <div style="color:var(--text-muted);" data-i18n="config_dist_familiar">Vertraute Quellen (Familiar)</div>
+          <div id="summary-familiar-count" style="font-size:1.1rem;font-weight:700;color:#fff;">8 Songs (50%)</div>
+        </div>
+        <div style="background:rgba(138,63,252,0.12);border:1px solid rgba(138,63,252,0.3);border-radius:4px;padding:0.5rem 0.75rem;">
+          <div style="color:var(--text-muted);" data-i18n="config_dist_discovery">Genre-Entdeckung (Discovery)</div>
+          <div id="summary-discovery-count" style="font-size:1.1rem;font-weight:700;color:#fff;">7 Songs (50%)</div>
+        </div>
+      </div>
+
+      <!-- Genre Cap / Actual Total Notice -->
+      <div id="genre-cap-warning" style="display:none;background:rgba(241,194,27,0.12);border:1px solid rgba(241,194,27,0.4);border-radius:4px;padding:0.6rem 0.75rem;margin-bottom:0.75rem;color:var(--yellow);font-size:0.8rem;line-height:1.4;">
+      </div>
+
+      <!-- Familiar Source Pool Breakdown -->
+      <div style="border-top:1px solid rgba(255,255,255,0.1);padding-top:0.75rem;">
+        <div style="font-weight:600;font-size:0.85rem;margin-bottom:0.5rem;color:var(--text-muted);" data-i18n="config_dist_pool_title">
+          Vertrauter Quell-Pool (wird gemischt & ausgewählt)
+        </div>
+        <div id="source-pool-chips" style="display:flex;flex-wrap:wrap;gap:0.5rem;font-size:0.8rem;">
+          <!-- Dynamically populated chips -->
+        </div>
+        <div id="source-pool-warning" style="display:none;color:var(--yellow);font-size:0.8rem;margin-top:0.5rem;" data-i18n="config_dist_no_sources">
+          ⚠️ Keine vertrauten Musikquellen aktiviert!
+        </div>
+      </div>
     </div>
 
-    <!-- Source playlists -->
-    <div class="card-title" style="margin-top:1rem" data-i18n="config_playlists">Source playlists</div>
-    <div id="playlist-list" class="item-list">
-      <% (config.music && config.music.playlists || []).forEach(function(pl, i) { %>
-      <div class="item-entry" id="pl-<%= i %>">
-        <div class="form-group" style="margin:0">
-          <label data-i18n="config_podcast_name">Name</label>
-          <input type="text" name="pl_name[]" value="<%= pl.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
-          <input type="hidden" name="pl_id[]" value="<%= pl.id || '' %>">
+    <!-- Section 1: Top-Tracks -->
+    <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem;">
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input type="checkbox" id="top_tracks_enabled" name="top_tracks_enabled" value="1"
+                 <%= (config.music && config.music.top_tracks && config.music.top_tracks.enabled) ? 'checked' : '' %>
+                 onchange="updateMusicComposition()">
+          <label for="top_tracks_enabled" style="text-transform:none;letter-spacing:0;font-weight:600;" data-i18n="config_top_tracks">Enable top tracks</label>
         </div>
-        <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
       </div>
-      <% }); %>
+      <div id="top-tracks-options" style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.5rem;">
+        <div class="form-group" style="margin:0;">
+          <label data-i18n="config_time_range">Time range</label>
+          <select name="time_range">
+            <% const tr = config.music && config.music.top_tracks && config.music.top_tracks.time_range || 'short_term'; %>
+            <option value="short_term"  <%= tr === 'short_term'  ? 'selected' : '' %> data-i18n="config_time_range_short">Last month (~4 weeks)</option>
+            <option value="medium_term" <%= tr === 'medium_term' ? 'selected' : '' %> data-i18n="config_time_range_medium">Last 6 months</option>
+            <option value="long_term"   <%= tr === 'long_term'   ? 'selected' : '' %> data-i18n="config_time_range_long">All time</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label data-i18n="config_top_tracks_count">Anzahl Top-Tracks (0–50)</label>
+          <input type="number" id="top_tracks_count" name="top_tracks_count"
+                 value="<%= (config.music && config.music.top_tracks && config.music.top_tracks.count != null) ? config.music.top_tracks.count : 30 %>"
+                 min="0" max="50" oninput="updateMusicComposition()">
+        </div>
+      </div>
+      <p class="field-hint" style="margin-bottom:1rem;" data-i18n="config_top_tracks_hint">Spotify stellt maximal 50 Top-Tracks pro Zeitraum bereit.</p>
     </div>
-    <div class="btn-row">
-      <button type="button" class="btn btn-primary" onclick="openPicker('playlist')" data-i18n="picker_select_playlist">🔍 Select from Spotify</button>
+
+    <!-- Section 2: Liked/Saved Songs -->
+    <div style="border-top:1px solid var(--border);padding-top:1rem;">
+      <div class="form-group">
+        <div class="checkbox-row">
+          <input type="checkbox" id="saved_tracks_enabled" name="saved_tracks_enabled" value="1"
+                 <%= (config.music && config.music.saved_tracks && config.music.saved_tracks.enabled) ? 'checked' : '' %>
+                 onchange="updateMusicComposition()">
+          <label for="saved_tracks_enabled" style="text-transform:none;letter-spacing:0;font-weight:600;" data-i18n="config_saved_tracks">Enable liked/saved songs</label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label data-i18n="config_saved_tracks_count">Saved songs fetch count</label>
+        <input type="number" id="saved_tracks_count" name="saved_tracks_count"
+               value="<%= config.music && config.music.saved_tracks && config.music.saved_tracks.count || 50 %>"
+               min="1" max="500" oninput="updateMusicComposition()">
+      </div>
+    </div>
+
+    <!-- Section 3: Source Playlists -->
+    <div style="border-top:1px solid var(--border);padding-top:1rem;">
+      <div class="card-title" style="font-size:0.95rem;margin-bottom:0.5rem;" data-i18n="config_playlists">Source playlists</div>
+      <div id="playlist-list" class="item-list">
+        <% (config.music && config.music.playlists || []).forEach(function(pl, i) { %>
+        <div class="item-entry" id="pl-<%= i %>" data-playlist-id="<%= pl.id || '' %>" data-tracks-total="">
+          <div class="form-group" style="margin:0">
+            <label data-i18n="config_podcast_name">Name</label>
+            <input type="text" name="pl_name[]" value="<%= pl.name || '' %>" readonly style="background:var(--bg2,#262626);cursor:default">
+            <input type="hidden" name="pl_id[]" value="<%= pl.id || '' %>">
+          </div>
+          <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry')); updateMusicComposition();">✕</button>
+        </div>
+        <% }); %>
+      </div>
+      <div class="btn-row" style="margin-top:0.75rem;">
+        <button type="button" class="btn btn-primary" onclick="openPicker('playlist')" data-i18n="picker_select_playlist">🔍 Select from Spotify</button>
+      </div>
+    </div>
+
+    <!-- Section 4: Genre Discovery -->
+    <div style="border-top:1px solid var(--border);padding-top:1rem;margin-top:1rem;">
+      <div class="card-title" style="font-size:0.95rem;margin-bottom:0.5rem;" data-i18n="config_dist_discovery">Genre Discovery</div>
+      <div class="form-group">
+        <label data-i18n="config_genres">Genre tags (comma-separated)</label>
+        <input type="text" id="genres_input" name="genres" value="<%= config.music && config.music.genres ? config.music.genres.join(', ') : '' %>" placeholder="pop, indie rock, electronic" oninput="updateMusicComposition()">
+        <p class="field-hint" data-i18n="config_genres_hint">Separate genres with commas or semicolons (e.g. pop, dance, indie). Note: Spotify returns up to 10 discovery tracks per genre search.</p>
+        <button type="button" class="btn btn-secondary" onclick="openTasteModal()" data-i18n="config_genres_auto_detect">🎵 Auto-Detect Genres</button>
+      </div>
     </div>
   </div>
 
@@ -457,20 +531,45 @@ function addPodcast(id = '', name = '') {
   rebuildPinSelect();
 }
 
-function addPlaylist(id = '', name = '') {
+function addPlaylist(id = '', name = '', tracksTotal = '') {
   const i = plCount++;
   const div = document.createElement('div');
   div.className = 'item-entry';
   div.id = 'pl-' + i;
+  div.dataset.playlistId = id;
+  if (tracksTotal !== '' && tracksTotal != null) {
+    div.dataset.tracksTotal = tracksTotal;
+  }
   div.innerHTML = `
     <div class="form-group" style="margin:0">
       <label>${DDLang.t('config_podcast_name')}</label>
       <input type="text" name="pl_name[]" value="${name}" readonly style="background:var(--bg2,#262626);cursor:default">
       <input type="hidden" name="pl_id[]" value="${id}">
     </div>
-    <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
+    <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry')); updateMusicComposition();">✕</button>
   `;
   document.getElementById('playlist-list').appendChild(div);
+
+  // If tracks count was not passed, fetch it asynchronously
+  if (tracksTotal === '' || tracksTotal == null) {
+    fetchPlaylistTrackCount(id, div);
+  } else {
+    updateMusicComposition();
+  }
+}
+
+async function fetchPlaylistTrackCount(id, element) {
+  if (!id) return;
+  try {
+    const resp = await fetch('/api/playlist-info/' + encodeURIComponent(id));
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data && data.tracks_total != null) {
+        element.dataset.tracksTotal = data.tracks_total;
+        updateMusicComposition();
+      }
+    }
+  } catch(e) { /* ignore */ }
 }
 
 function clearTargetPlaylist() {
@@ -489,16 +588,27 @@ function setTargetPlaylist(id, name, image) {
   document.getElementById('target-playlist-empty').style.display = 'none';
 }
 
-// On page load: fetch Spotify name for the already-saved playlist ID
-(async function loadTargetPlaylistInfo() {
-  const id = document.getElementById('target_playlist_id').value;
-  if (!id) return;
-  try {
-    const resp = await fetch('/api/playlist-info/' + encodeURIComponent(id));
-    if (!resp.ok) return; // leave raw ID as fallback
-    const data = await resp.json();
-    setTargetPlaylist(data.id, data.name, data.image);
-  } catch(e) { /* silent — raw ID stays as fallback */ }
+// On page load: fetch Spotify name for the already-saved target playlist and track counts for source playlists
+(async function loadInitialPlaylistData() {
+  const targetId = document.getElementById('target_playlist_id')?.value;
+  if (targetId) {
+    try {
+      const resp = await fetch('/api/playlist-info/' + encodeURIComponent(targetId));
+      if (resp.ok) {
+        const data = await resp.json();
+        setTargetPlaylist(data.id, data.name, data.image);
+      }
+    } catch(e) { /* silent */ }
+  }
+
+  // Fetch track counts for source playlists configured on load
+  const plEntries = document.querySelectorAll('#playlist-list .item-entry');
+  for (const entry of plEntries) {
+    const id = entry.dataset.playlistId || entry.querySelector('input[name="pl_id[]"]')?.value;
+    if (id) {
+      fetchPlaylistTrackCount(id, entry);
+    }
+  }
 })();
 
 // Spotify Picker Modal JS
@@ -623,7 +733,7 @@ function renderPickerItems(items) {
     card.className = 'picker-result-card' + (isForeign ? ' picker-result-disabled' : '');
     const imageUrl = item.images && item.images.length > 0 ? item.images[item.images.length - 1].url : '/img/bob/standing.png';
     if (!isForeign) {
-      card.onclick = () => selectPickerItem(item.id, item.name, imageUrl);
+      card.onclick = () => selectPickerItem(item.id, item.name, imageUrl, item.tracks_total);
     }
     const subtext = (currentPickerType === 'show') ? item.publisher : item.owner;
 
@@ -646,13 +756,13 @@ function renderPickerItems(items) {
   });
 }
 
-function selectPickerItem(id, name, image) {
+function selectPickerItem(id, name, image, tracksTotal) {
   if (currentPickerType === 'show') {
     addPodcast(id, name);
   } else if (currentPickerType === 'target_playlist') {
     setTargetPlaylist(id, name, image);
   } else {
-    addPlaylist(id, name);
+    addPlaylist(id, name, tracksTotal);
   }
   closePicker();
 }
@@ -716,6 +826,184 @@ function applyTasteGenres(mode) {
   } else {
     genresInput.value = genres.join(', ');
   }
+  updateMusicComposition();
   closeTasteModal();
 }
+
+// ---------------------------------------------------------------------------
+// Dynamic Music Composition & Percentage Calculation
+// ---------------------------------------------------------------------------
+function updateMusicComposition() {
+  const totalSongsEl = document.getElementById('total_songs');
+  const genresEl = document.getElementById('genres_input');
+  const topTracksCheck = document.getElementById('top_tracks_enabled');
+  const topTracksCountEl = document.getElementById('top_tracks_count');
+  const savedTracksCheck = document.getElementById('saved_tracks_enabled');
+  const savedTracksCountEl = document.getElementById('saved_tracks_count');
+  const playlistItems = document.querySelectorAll('#playlist-list .item-entry');
+
+  if (!totalSongsEl) return;
+
+  const totalSongs = Math.max(1, parseInt(totalSongsEl.value, 10) || 15);
+  const rawGenres = (genresEl ? genresEl.value : '').split(/[,;\n\r]+/).map(s => s.trim()).filter(Boolean);
+  const genreCount = rawGenres.length;
+  const hasGenres = genreCount > 0;
+
+  // 1. Calculate Target split
+  const targetFamiliar = hasGenres ? Math.ceil(totalSongs / 2) : totalSongs;
+  const targetDiscovery = hasGenres ? (totalSongs - targetFamiliar) : 0;
+
+  // 2. Calculate Familiar Pool capacity from all sources
+  const topTracksEnabled = topTracksCheck && topTracksCheck.checked;
+  const topTracksCount = topTracksEnabled ? Math.min(50, Math.max(0, parseInt(topTracksCountEl?.value || '30', 10) || 0)) : 0;
+
+  const savedTracksEnabled = savedTracksCheck && savedTracksCheck.checked;
+  const savedTracksCount = savedTracksEnabled ? Math.max(0, parseInt(savedTracksCountEl?.value || '50', 10) || 0) : 0;
+
+  // Sum exact/known playlist tracks from DOM data attributes (fallback to 50 per playlist if not yet loaded)
+  let totalPlaylistTracks = 0;
+  const playlistItemsArr = Array.from(playlistItems);
+  playlistItemsArr.forEach(entry => {
+    const rawTotal = entry.dataset.tracksTotal;
+    if (rawTotal !== '' && rawTotal != null && !isNaN(parseInt(rawTotal, 10))) {
+      totalPlaylistTracks += parseInt(rawTotal, 10);
+    } else {
+      totalPlaylistTracks += 50; // estimate until fetched
+    }
+  });
+
+  const totalFamiliarPool = (topTracksEnabled ? topTracksCount : 0) +
+                            (savedTracksEnabled ? savedTracksCount : 0) +
+                            totalPlaylistTracks;
+
+  // Actual familiar songs that can be placed in playlist
+  const actualFamiliarCount = Math.min(targetFamiliar, totalFamiliarPool);
+
+  // 3. Calculate Discovery capacity (max 10 tracks per genre search in Spotify Dev Mode)
+  const maxPossibleDiscovery = genreCount * 10;
+  const actualDiscoveryCount = hasGenres ? Math.min(targetDiscovery, maxPossibleDiscovery) : 0;
+
+  const actualTotalMusic = actualFamiliarCount + actualDiscoveryCount;
+
+  // Calculate actual percentages (guard against 0 total music)
+  const familiarPct = actualTotalMusic > 0 ? Math.round((actualFamiliarCount / actualTotalMusic) * 100) : 0;
+  const discoveryPct = actualTotalMusic > 0 ? (100 - familiarPct) : 0;
+
+  const barFamiliar = document.getElementById('bar-familiar');
+  const barDiscovery = document.getElementById('bar-discovery');
+  const sumFamiliar = document.getElementById('summary-familiar-count');
+  const sumDiscovery = document.getElementById('summary-discovery-count');
+  const capWarningEl = document.getElementById('genre-cap-warning');
+
+  // Update progress bar
+  if (barFamiliar && barDiscovery) {
+    if (actualTotalMusic === 0) {
+      barFamiliar.style.width = '0%';
+      barFamiliar.textContent = '';
+      barDiscovery.style.width = '0%';
+      barDiscovery.textContent = '';
+    } else if (actualDiscoveryCount === 0) {
+      barFamiliar.style.width = '100%';
+      barFamiliar.textContent = `100% (${actualFamiliarCount})`;
+      barDiscovery.style.width = '0%';
+      barDiscovery.textContent = '';
+    } else {
+      barFamiliar.style.width = familiarPct + '%';
+      barFamiliar.textContent = `${familiarPct}% (${actualFamiliarCount})`;
+      barDiscovery.style.width = discoveryPct + '%';
+      barDiscovery.textContent = `${discoveryPct}% (${actualDiscoveryCount})`;
+    }
+  }
+
+  // Update summary cards
+  if (sumFamiliar) {
+    if (totalFamiliarPool < targetFamiliar) {
+      sumFamiliar.innerHTML = `<span style="color:var(--yellow);">${actualFamiliarCount} Songs (${familiarPct}%)</span> <span style="font-size:0.75rem;color:var(--text-muted);font-weight:normal;">(Ziel: ${targetFamiliar})</span>`;
+    } else {
+      sumFamiliar.textContent = `${actualFamiliarCount} Songs (${familiarPct}%)`;
+    }
+  }
+  if (sumDiscovery) {
+    if (hasGenres && targetDiscovery > maxPossibleDiscovery) {
+      sumDiscovery.innerHTML = `<span style="color:var(--yellow);">${actualDiscoveryCount} Songs (${discoveryPct}%)</span> <span style="font-size:0.75rem;color:var(--text-muted);font-weight:normal;">(Ziel: ${targetDiscovery})</span>`;
+    } else {
+      sumDiscovery.textContent = `${actualDiscoveryCount} Songs (${discoveryPct}%)`;
+    }
+  }
+
+  // Combined warnings notice
+  if (capWarningEl) {
+    const warnings = [];
+    const isFamiliarShort = totalFamiliarPool < targetFamiliar;
+    const isDiscoveryShort = hasGenres && targetDiscovery > maxPossibleDiscovery;
+
+    if (isFamiliarShort) {
+      const famTpl = DDLang.t('config_dist_familiar_cap_warning', '⚠️ Deine vertrauten Quellen liefern maximal {pool} Songs (Ziel: {target}).');
+      warnings.push(famTpl.replace('{pool}', totalFamiliarPool).replace('{target}', targetFamiliar));
+    }
+    if (isDiscoveryShort) {
+      const genTpl = DDLang.t('config_dist_genre_cap_warning', '⚠️ Mit {count} Genres kann Spotify maximal {max} Discovery-Songs liefern (max. 10 pro Genre).');
+      warnings.push(genTpl.replace('{count}', genreCount).replace('{max}', maxPossibleDiscovery));
+    }
+    if (isFamiliarShort || isDiscoveryShort) {
+      const totalTpl = DDLang.t('config_dist_total_short_warning', 'Die fertige Playlist wird daher voraussichtlich nur insgesamt {actual} statt {target} Songs enthalten.');
+      warnings.push(totalTpl.replace('{actual}', actualTotalMusic).replace('{target}', totalSongs));
+    }
+
+    if (warnings.length > 0) {
+      capWarningEl.innerHTML = warnings.join('<br>');
+      capWarningEl.style.display = 'block';
+    } else {
+      capWarningEl.style.display = 'none';
+    }
+  }
+
+  // 4. Calculate Familiar Pool Breakdown Chips
+  const chipsContainer = document.getElementById('source-pool-chips');
+  const warningEl = document.getElementById('source-pool-warning');
+
+  if (chipsContainer) {
+    chipsContainer.innerHTML = '';
+    const playlistCount = playlistItems.length;
+
+    if (topTracksEnabled && topTracksCount > 0) {
+      const pct = totalFamiliarPool > 0 ? Math.round((topTracksCount / totalFamiliarPool) * 100) : 0;
+      chipsContainer.innerHTML += `
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:0.3rem 0.6rem;display:flex;align-items:center;gap:0.4rem;">
+          <span style="color:#0f62fe;">●</span> <span>Top-Tracks:</span> <strong>${topTracksCount}</strong> <span style="color:var(--text-muted);font-size:0.75rem;">(~${pct}% Pool)</span>
+        </div>`;
+    }
+
+    if (savedTracksEnabled && savedTracksCount > 0) {
+      const pct = totalFamiliarPool > 0 ? Math.round((savedTracksCount / totalFamiliarPool) * 100) : 0;
+      chipsContainer.innerHTML += `
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:0.3rem 0.6rem;display:flex;align-items:center;gap:0.4rem;">
+          <span style="color:#24a148;">●</span> <span>Likes / Saved:</span> <strong>${savedTracksCount}</strong> <span style="color:var(--text-muted);font-size:0.75rem;">(~${pct}% Pool)</span>
+        </div>`;
+    }
+
+    if (playlistCount > 0) {
+      const pct = totalFamiliarPool > 0 ? Math.round((totalPlaylistTracks / totalFamiliarPool) * 100) : 0;
+      chipsContainer.innerHTML += `
+        <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:4px;padding:0.3rem 0.6rem;display:flex;align-items:center;gap:0.4rem;">
+          <span style="color:#f1c21b;">●</span> <span>${playlistCount} ${playlistCount === 1 ? 'Playlist' : 'Playlists'}:</span> <strong>${totalPlaylistTracks}</strong> <span style="color:var(--text-muted);font-size:0.75rem;">(~${pct}% Pool)</span>
+        </div>`;
+    }
+
+    if (!topTracksEnabled && !savedTracksEnabled && playlistCount === 0) {
+      if (warningEl) warningEl.style.display = 'block';
+    } else {
+      if (warningEl) warningEl.style.display = 'none';
+    }
+  }
+}
+
+// Initial calculation on page load
+document.addEventListener('DOMContentLoaded', updateMusicComposition);
+// Re-run once i18n JSON strings are fully loaded
+if (window.DDLang && window.DDLang.onReady) {
+  window.DDLang.onReady(updateMusicComposition);
+}
+// Also trigger immediately in case DOM is already ready
+updateMusicComposition();
 </script>

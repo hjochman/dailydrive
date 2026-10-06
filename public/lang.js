@@ -70,13 +70,29 @@
   window.DDLang = {
     load: () => loadLang(currentLang()),
     switch: (lang) => loadLang(lang),
-    t: (key) => _strings[key] || key,
+    t: (key, fallback) => {
+      if (_strings[key] !== undefined) return _strings[key];
+      return fallback !== undefined ? fallback : key;
+    },
+    hasLoaded: () => Object.keys(_strings).length > 0,
+    onReady: (cb) => {
+      if (Object.keys(_strings).length > 0) {
+        cb();
+      } else {
+        window.addEventListener("dd_lang_loaded", cb, { once: true });
+      }
+    },
   };
+
+  async function loadAndNotify(lang) {
+    await loadLang(lang);
+    window.dispatchEvent(new CustomEvent("dd_lang_loaded"));
+  }
 
   // Auto-load on DOM ready
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", () => DDLang.load());
+    document.addEventListener("DOMContentLoaded", () => loadAndNotify(currentLang()));
   } else {
-    DDLang.load();
+    loadAndNotify(currentLang());
   }
 })();

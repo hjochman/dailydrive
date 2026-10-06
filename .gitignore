@@ -109,3 +109,5 @@ docs/
 
 # --- Claude/AI assistant memory (may contain project context) ---
 .claude/
+
+presentations/
