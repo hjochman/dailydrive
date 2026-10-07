@@ -26,8 +26,11 @@ const PATHS = {
  * Returns the Spotify credentials to use, merging environment variables
  * (highest priority) with values from a loaded config object (fallback).
  *
+ * OAuth mode fields (client_id, client_secret, redirect_uri) are always resolved.
+ * Cookie mode field (sp_dc) is resolved when api_mode is 'cookie'.
+ *
  * @param {object} [configSpotify={}]  config.spotify from config.yaml (may be empty)
- * @returns {{ client_id, client_secret, redirect_uri }}
+ * @returns {{ client_id, client_secret, redirect_uri, sp_dc }}
  */
 function resolveSpotifyCredentials(configSpotify = {}) {
   return {
@@ -35,6 +38,7 @@ function resolveSpotifyCredentials(configSpotify = {}) {
     client_secret: process.env.SPOTIFY_CLIENT_SECRET || configSpotify.client_secret || "",
     redirect_uri:  process.env.SPOTIFY_REDIRECT_URI  || configSpotify.redirect_uri  ||
                    `http://127.0.0.1:${process.env.WEB_PORT || 8080}/callback`,
+    sp_dc:         process.env.SPOTIFY_SP_DC           || configSpotify.sp_dc         || "",
   };
 }
 

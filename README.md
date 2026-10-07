@@ -10,7 +10,9 @@
 
 Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/Is-Daily-Drive-gone/td-p/7377710) on March 17, 2026. This project brings it back. It runs on any Linux machine **or inside a container on a Synology NAS**, and automatically refreshes a Spotify playlist with your podcasts interleaved with music.
 
-> **New in v2.0:** A full Web UI (built with IBM Bob 🤖) guides you through setup, lets you edit all configuration, and runs the playlist on a configurable schedule — no CLI required. Deploy with one `docker compose up`.
+> **New in v2.1:** Choose your Spotify backend — **OAuth** (full features, requires a free Spotify Developer App) or **Cookie mode** (just your Spotify username and password, no Developer App needed). The Setup Wizard and Config page let you switch at any time.
+
+> **v2.0:** A full Web UI (built with IBM Bob 🤖) guides you through setup, lets you edit all configuration, and runs the playlist on a configurable schedule — no CLI required. Deploy with one `docker compose up`.
 
 [**Listen to a live example**](https://open.spotify.com/playlist/34nCFkIuIkiFF4W5dJKiTi) — updated twice daily with NPR News, The Journal, Freakonomics, and a mix of top tracks and genre discovery.
 
@@ -74,10 +76,9 @@ Only two variables need to be set. Everything else (Spotify credentials, playlis
 3. **Open the Web UI:**
    - Open your browser at `http://<NAS-IP>:8080`
 
-4. **Follow the Setup Wizard** — 3 steps:
-   - Step 1: Create a Spotify Developer App and enter Client ID + Secret
-   - Step 2: Authorize Daily Drive with your Spotify account
-   - Step 3: Select your target playlist and podcasts
+4. **Follow the Setup Wizard** — choose your API mode first:
+   - **OAuth mode (recommended):** Step 1: Create a free Spotify Developer App and enter Client ID + Secret → Step 2: Authorize → Step 3: Select playlist
+   - **Cookie mode (no Developer App):** Step 1: Enter Spotify username + password → Step 2: Select playlist (OAuth step skipped)
 
 5. **Done!** The playlist refreshes automatically every 24 hours (at 04:00). Change the interval under Config → Refresh interval.
 
@@ -122,7 +123,8 @@ All runtime data is stored in `/data` (mapped to your host directory):
 | File | Description |
 |---|---|
 | `config.yaml` | Your configuration (written by the web UI) |
-| `.spotify-token.json` | Spotify OAuth tokens (auto-refreshed) |
+| `.spotify-token.json` | Spotify OAuth tokens (auto-refreshed) — OAuth mode only |
+| `.cookie-session.json` | TOTP session tokens (auto-refreshed) — Cookie mode only |
 | `state.json` | Playlist state cache |
 | `logs/YYYY-MM-DD.log` | Daily log files |
 
@@ -351,6 +353,7 @@ That's it — your Daily Drive is back on autopilot.
 | `403 Forbidden` | Go to [developer.spotify.com/dashboard](https://developer.spotify.com/dashboard) → your app → Settings → User Management → add your Spotify email. Then re-authorize. |
 | `404 Not Found` | Double-check your podcast/playlist IDs in config.yaml |
 | Playlist is empty after running | Run `npm test` to see if podcasts/playlists are returning results |
+| Cookie mode: `Session expired` | Re-run the Setup Wizard (Cookie mode) to re-authenticate |
 
 ---
 
@@ -400,8 +403,8 @@ Uses the [Demeterics](https://demeterics.ai) API — an LLM observability platfo
 
 ## How It Works
 
-1. **Auth:** OAuth 2.0 — Setup Wizard (or `setup.js` for CLI) runs a local server, you log in via browser, tokens are saved and auto-refresh
-2. **Podcasts:** Fetches latest episodes from each show via Spotify API
+1. **Auth:** Two modes — *OAuth 2.0* (Setup Wizard or `setup.js` for CLI, tokens auto-refresh) or *Cookie mode* (TOTP-based internal token from `open.spotify.com/api/token`, session auto-refreshes)
+2. **Podcasts:** Fetches latest episodes from each show via Spotify API (or Pathfinder GraphQL in Cookie mode)
 3. **Music:** Pulls from your top tracks, genre search, and/or playlists — pools, shuffles, and trims
 4. **Mix:** Pins episodes marked `position: first`, then interleaves the rest using your mix pattern
 5. **Update:** Replaces the playlist contents via the Spotify API
@@ -410,25 +413,29 @@ The script caches state in `state.json` — if nothing changed since last run, i
 
 ---
 
-## Project Structure (v2.0)
+## Project Structure (v2.1)
 
 ```
-server.js           — Web server & scheduler (container entrypoint)
-index.js            — Playlist builder logic (called by server or CLI)
-paths.js            — Centralised path & credential resolution
-token-manager.js    — Spotify token refresh daemon
-setup.js            — CLI-only OAuth setup (legacy / headless)
-views/              — EJS templates for the Web UI
-public/             — Static assets (CSS, i18n JSON, Bob images)
-  style.css         — IBM dark theme styles
-  lang.js           — DE/EN language switcher
-  i18n/de.json      — German UI strings
-  i18n/en.json      — English UI strings
-  img/bob/          — IBM Bob logo and illustrations
-Dockerfile          — Red Hat UBI9 container image
-docker-compose.yml  — Local development compose file
-nas-deployment.example.yaml — Synology NAS deployment template
-config.example.yaml — Config template (for CLI usage)
+server.js                    — Web server & scheduler (container entrypoint)
+index.js                     — Playlist builder logic (called by server or CLI)
+paths.js                     — Centralised path & credential resolution
+token-manager.js             — Spotify token refresh daemon (used by OAuthSpotifyClient)
+setup.js                     — CLI-only OAuth setup (legacy / headless)
+spotify-client-base.js       — Abstract SpotifyClientBase interface + error classes
+spotify-client-oauth.js      — OAuth 2.0 backend (spotify-web-api-node)
+spotify-client-cookie.js     — Cookie/TOTP backend (no Developer App required)
+spotify-client-factory.js    — createSpotifyClient(mode, creds) factory
+views/                       — EJS templates for the Web UI
+public/                      — Static assets (CSS, i18n JSON, Bob images)
+  style.css                  — IBM dark theme styles
+  lang.js                    — DE/EN language switcher
+  i18n/de.json               — German UI strings
+  i18n/en.json               — English UI strings
+  img/bob/                   — IBM Bob logo and illustrations
+Dockerfile                   — Red Hat UBI9 container image
+docker-compose.yml           — Local development compose file
+nas-deployment.example.yaml  — Synology NAS deployment template
+config.example.yaml          — Config template (for CLI usage)
 ```
 
 ---

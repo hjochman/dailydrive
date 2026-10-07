@@ -24,6 +24,10 @@ RUN npm ci --omit=dev && npm cache clean --force
 # ── Copy application source ──────────────────────────────────────────────────
 COPY paths.js \
      token-manager.js \
+     spotify-client-base.js \
+     spotify-client-oauth.js \
+     spotify-client-cookie.js \
+     spotify-client-factory.js \
      server.js \
      index.js \
      setup.js \

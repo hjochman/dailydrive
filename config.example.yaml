@@ -7,14 +7,38 @@
 # For help getting your Spotify credentials, see README.md
 # =============================================================================
 
+# --- API-Modus ---
+# Legt fest, welches Spotify-Backend verwendet wird.
+#
+# oauth  (Standard) — Offizielle Spotify Web API über OAuth 2.0.
+#         Erfordert eine Spotify Developer App (client_id + client_secret).
+#         Unterstützt alle Funktionen inkl. Playlist-Cover-Bild setzen.
+#
+# cookie — Inoffizieller Ansatz ohne Developer-Account.
+#         Nutzt den internen Spotify Web Player Token-Endpunkt (TOTP-basiert).
+#         Erfordert Spotify-Benutzername und Passwort (siehe spotify.username/password).
+#         Playlist-Cover-Bild setzen wird NICHT unterstützt.
+#         Wird automatisch gesetzt, wenn der Setup-Wizard den Cookie-Modus wählt.
+api_mode: "oauth"   # "oauth" | "cookie"
+
 # --- Spotify App Credentials ---
 # Get these from https://developer.spotify.com/dashboard
 # IMPORTANT: Also add your Spotify email in Dashboard > User Management
 spotify:
+  # OAuth-Modus (api_mode: oauth): Pflichtfelder
   client_id: "your-client-id-here"
   client_secret: "your-client-secret-here"
   # IMPORTANT: Must use 127.0.0.1, NOT localhost (Spotify removed localhost support Nov 2025)
   redirect_uri: "http://127.0.0.1:8888/callback"
+
+  # Cookie-Modus (api_mode: cookie) — auskommentiert lassen wenn OAuth genutzt wird:
+  # SICHERHEITSHINWEIS: config.yaml ist in .gitignore — niemals committen!
+  #
+  # Den sp_dc Cookie erhältst du aus dem Browser:
+  # 1. Öffne https://open.spotify.com und melde dich an.
+  # 2. DevTools öffnen (F12) → Application → Cookies → open.spotify.com → sp_dc
+  # 3. Wert hierher kopieren:
+  # sp_dc: "AQB3...dein-langer-cookie-wert..."
 
 # --- Your Playlist ---
 # The playlist where Daily Drive content will be placed.

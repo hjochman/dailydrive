@@ -10,6 +10,8 @@
 .spotify-token.json
 spotify-token.json
 *token*.json
+# Cookie-mode session — contains access_token and session cookies
+.cookie-session.json
 
 # User config — contains client_id, client_secret, playlist IDs
 config.yaml
@@ -109,5 +111,6 @@ docs/
 
 # --- Claude/AI assistant memory (may contain project context) ---
 .claude/
+.bob/
 
 presentations/

@@ -1,8 +1,36 @@
 # Changelog
 
-All notable changes to Daily Drive by IBM Bob are documented here.  
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).  
+All notable changes to Daily Drive by IBM Bob are documented here.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.1.0] — Dual-Backend Spotify Client
+
+### Added
+- **Dual-backend Spotify API layer** — all Spotify calls are now routed through an abstract `SpotifyClientBase` interface with two interchangeable implementations
+- **`OAuthSpotifyClient`** (`spotify-client-oauth.js`) — encapsulates the existing OAuth 2.0 flow with `spotify-web-api-node`; `TokenManager` is now a private concern of the client, not imported externally
+- **`CookieSpotifyClient`** (`spotify-client-cookie.js`) — new backend that requires only a Spotify username and password (no Developer App / `client_id` / `client_secret` needed); uses TOTP-based internal token retrieval from `open.spotify.com/api/token` and Spotify's internal Pathfinder GraphQL API (`api-partner.spotify.com/pathfinder/v2/query`)
+- **`spotify-client-factory.js`** — `createSpotifyClient(mode, creds)` factory instantiates the correct client based on `api_mode` in config
+- **`spotify-client-base.js`** — abstract base class with all 17 interface methods, `NotSupportedError`, and `SpotifyQuotaError` (moved from `index.js`)
+- **`api_mode` config field** — `"oauth"` (default, all features) or `"cookie"` (no Developer App required, playlist cover image not supported)
+- **Cookie-mode credentials** in `config.yaml` — `spotify.username` / `spotify.password` (git-ignored, env-var overrides `SPOTIFY_USERNAME` / `SPOTIFY_PASSWORD`)
+- **`.cookie-session.json`** in `DATA_DIR` — persists TOTP session tokens (access token, client token, query hashes); auto-refreshed every 30 minutes; added to `.gitignore`
+- **`userTopContent` Pathfinder operation** implemented in `CookieSpotifyClient` — provides `getMyTopTracks()` and `getMyTopArtists()` without OAuth (operation was already registered in the SpotAPI-async-v2 reference library but not yet implemented there)
+- **Setup Wizard — API mode selection** in Step 1: radio-card choice between "OAuth (recommended)" and "Spotify Account (Cookie)"; Step 2 (OAuth authorization) is skipped in Cookie mode
+- **Config page — API Mode section**: dropdown to switch backends, inline Cookie credentials fields, warning banner when Cover Image is unavailable in Cookie mode
+- New CSS classes in `public/style.css`: `.mode-selector`, `.mode-option`, `.mode-card`, `.step-pill.skipped`
+
+### Changed
+- `index.js` no longer imports `spotify-web-api-node` or `token-manager` directly; all API calls go through `createSpotifyClient()` + `client.initialize()`
+- `server.js` no longer instantiates `SpotifyWebApi` per-route; all routes use `createClient(config, creds)` helper; Token Daemon start moved into `OAuthSpotifyClient.startDaemon()`
+- `paths.js` — `resolveSpotifyCredentials()` now also returns `username`, `password`, and `api_mode`
+- `SpotifyQuotaError` moved from `index.js` to `spotify-client-base.js` (re-exported for backward compatibility)
+- OAuth-specific routes (`/setup/authorize`, `/callback`, `/reauth`) now return `400` when `api_mode` is `"cookie"`
+- `POST /api/create-playlist` gracefully skips `setPlaylistCoverImage` in Cookie mode (`NotSupportedError` is caught and logged, playlist is still created)
+- `config.example.yaml` updated with `api_mode` field and documented `spotify.username` / `spotify.password` (commented out)
+- `package.json` version bumped to `2.1.0`
 
 ---
 

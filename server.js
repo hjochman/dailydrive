@@ -15,10 +15,12 @@ const path      = require("path");
 const express   = require("express");
 const yaml      = require("js-yaml");
 const cron      = require("node-cron");
-const SpotifyWebApi = require("spotify-web-api-node");
-
 const { PATHS, resolveSpotifyCredentials } = require("./paths");
 const tokenManager = require("./token-manager");
+const { OAuthSpotifyClient } = require("./spotify-client-oauth");
+const { createSpotifyClient } = require("./spotify-client-factory");
+const { NotSupportedError } = require("./spotify-client-base");
+const { setLogger: setCookieLogger } = require("./spotify-client-cookie");
 const { main: runRefresh, setLogger: setIndexLogger, SpotifyQuotaError } = require("./index");
 
 // ---------------------------------------------------------------------------
@@ -83,9 +85,10 @@ function logLine(msg) {
   } catch (_) { /* best-effort */ }
 }
 
-// Route index.js and token-manager.js log output through logLine so it appears in the web UI log
+// Route index.js, token-manager.js, and cookie client log output through logLine so it appears in the web UI log
 setIndexLogger(logLine);
 tokenManager.setLogger(logLine, logLine);
+setCookieLogger(logLine);
 
 // ---------------------------------------------------------------------------
 // Config I/O
@@ -104,6 +107,21 @@ function saveConfig(cfg) {
 }
 
 // ---------------------------------------------------------------------------
+// Client factory helper — creates the right SpotifyClient for the current config
+// ---------------------------------------------------------------------------
+
+/**
+ * Creates a SpotifyClient for the given config and credentials.
+ *
+ * @param {object} config  - Loaded config object (from loadConfig())
+ * @param {object} creds   - Resolved credentials (from resolveSpotifyCredentials())
+ * @returns {import('./spotify-client-base').SpotifyClientBase}
+ */
+function createClient(config, creds) {
+  return createSpotifyClient(config.api_mode || "oauth", creds);
+}
+
+// ---------------------------------------------------------------------------
 // Status helper — used by dashboard
 // ---------------------------------------------------------------------------
 
@@ -113,10 +131,31 @@ function getAppStatus() {
   const tokenStatus  = tokenManager.getTokenStatus();
   const now = new Date();
   const quotaActive = !!(_quotaRetryAfter && _quotaRetryAfter > now);
+  const apiMode = config.api_mode || "oauth";
+
+  // In cookie mode credentials are an sp_dc cookie (no client_id/secret needed)
+  const cookieSessionPath = path.join(PATHS.DATA_DIR, ".cookie-session.json");
+  const hasCredentials = apiMode === "cookie"
+    ? !!(creds.sp_dc || fs.existsSync(cookieSessionPath))
+    : !!(creds.client_id && creds.client_secret);
+
+  // In cookie mode the OAuth token manager is not used — check cookie session file instead
+  let tokenValid = tokenStatus.valid;
+  let expiresAt  = tokenStatus.expiresAt;
+  if (apiMode === "cookie") {
+    try {
+      if (fs.existsSync(cookieSessionPath)) {
+        const session = JSON.parse(fs.readFileSync(cookieSessionPath, "utf-8"));
+        tokenValid = !!(session.access_token && (!session.expires_at || session.expires_at > Date.now()));
+        expiresAt  = session.expires_at ? new Date(session.expires_at) : null;
+      }
+    } catch (_) {}
+  }
+
   return {
-    hasCredentials:  !!(creds.client_id && creds.client_secret),
-    tokenValid:      tokenStatus.valid,
-    expiresAt:       tokenStatus.expiresAt,
+    hasCredentials,
+    tokenValid,
+    expiresAt,
     hasRefreshToken: tokenStatus.hasRefreshToken,
     hasPlaylist:     !!(config.playlist_id && config.playlist_id !== "your-playlist-id-here"),
     hasPodcasts:     !!(config.podcasts && config.podcasts.length > 0),
@@ -358,50 +397,34 @@ app.get("/", async (req, res) => {
   // Skip live Spotify fetch while rate-limited — every request would just produce more 429s
   if (status.hasCredentials && status.hasPlaylist && !status.quotaActive) {
     try {
-      // Proactively refresh token if needed before API call
-      const token = await tokenManager.refreshTokenIfNeeded();
-      if (token && token.access_token) {
-        const playlistId = config.playlist_id;
-        let offset = 0;
-        let hasMore = true;
+      const creds = resolveSpotifyCredentials(config.spotify);
+      const apiMode = config.api_mode || "oauth";
+      const dashClient = createSpotifyClient(apiMode, creds);
+      await dashClient.initialize();
 
-        while (hasMore) {
-          const apiRes = await fetch(
-            `https://api.spotify.com/v1/playlists/${playlistId}/items?limit=100&offset=${offset}`,
-            { headers: { Authorization: `Bearer ${token.access_token}` } }
-          );
-
-          if (!apiRes.ok) {
-            throw new Error(`HTTP ${apiRes.status}: ${await apiRes.text()}`);
-          }
-
-          const data = await apiRes.json();
-          for (const entry of data.items) {
-            // Spotify /items returns episodes under entry.track (for playlist items)
-            // or entry.episode (some API versions). Tracks are always entry.track.
-            const item = entry.track || entry.episode;
-            if (!item || !item.uri) continue;
-            const isEpisode = item.type === "episode";
-            playlistTracks.push({
-              uri: item.uri,
-              name: item.name,
-              type: item.type,
-              artist: !isEpisode
-                ? (item.artists?.map(a => a.name).join(", ") || "Unknown Artist")
-                : null,
-              show: isEpisode
-                ? (typeof item.show === "object" ? item.show?.name : item.show) || "Unknown Show"
-                : null,
-              duration_ms: item.duration_ms,
-            });
-          }
-          offset += 100;
-          hasMore = offset < data.total;
-        }
-        isLive = true;
+      const items = await dashClient.getPlaylistItems(config.playlist_id, { limit: 100, tracksOnly: false });
+      for (const item of items) {
+        playlistTracks.push(item);
       }
+      // Paginate if needed
+      if (items._total && items._total > 100) {
+        let offset = 100;
+        while (offset < items._total) {
+          const more = await dashClient.getPlaylistItems(config.playlist_id, { limit: 100, offset, tracksOnly: false });
+          for (const item of more) playlistTracks.push(item);
+          offset += 100;
+        }
+      }
+      isLive = true;
     } catch (err) {
-      console.error("Failed to fetch live playlist tracks for dashboard:", err);
+      if (err && err.name === "SpotifyQuotaError") {
+        // Rate-limited — set global quota state so subsequent page loads skip the live fetch
+        _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
+        scheduleQuotaRetry(_quotaRetryAfter);
+        logLine(`⚠️  [dashboard] Rate-limited fetching playlist — suppressing live fetch until ${_quotaRetryAfter.toISOString()}`);
+      } else {
+        logLine(`❌ [dashboard] Failed to fetch live playlist tracks: ${err.message}`);
+      }
       playlistError = err.message;
     }
   }
@@ -448,13 +471,34 @@ app.get("/setup", (req, res) => {
   });
 });
 
-// ── POST /setup/credentials  Save credentials, go to step 2 (OAuth) ──────────
-app.post("/setup/credentials", (req, res) => {
+// ── POST /setup/credentials  Save credentials, go to step 2 (OAuth) or step 3 (Cookie) ──
+app.post("/setup/credentials", async (req, res) => {
   try {
     const config = loadConfig();
     if (!config.spotify) config.spotify = {};
 
-    const { client_id, client_secret, redirect_uri } = req.body;
+    const { client_id, client_secret, redirect_uri, api_mode, sp_dc } = req.body;
+
+    // Save api_mode (default to oauth)
+    config.api_mode = (api_mode === "cookie") ? "cookie" : "oauth";
+
+    if (config.api_mode === "cookie") {
+      // Cookie mode: save sp_dc cookie, attempt login
+      if (sp_dc && sp_dc.trim()) config.spotify.sp_dc = sp_dc.trim();
+      saveConfig(config);
+      try {
+        const { CookieSpotifyClient } = require("./spotify-client-cookie");
+        const cookieClient = new CookieSpotifyClient({ sp_dc: config.spotify.sp_dc });
+        await cookieClient.initialize();
+        logLine("✅ Cookie-mode Spotify login successful");
+      } catch (loginErr) {
+        logLine("❌ Cookie-mode login failed: " + loginErr.message);
+        return res.redirect("/setup?step=1&error=" + encodeURIComponent("Login fehlgeschlagen: " + loginErr.message));
+      }
+      return res.redirect("/setup?step=3");
+    }
+
+    // OAuth mode: save client_id/secret as before
     if (client_id)     config.spotify.client_id    = client_id.trim();
     if (client_secret && client_secret !== "••••••••")
                        config.spotify.client_secret = client_secret.trim();
@@ -465,6 +509,149 @@ app.post("/setup/credentials", (req, res) => {
   } catch (err) {
     logLine("❌ /setup/credentials error: " + err.message);
     res.redirect("/setup?step=1&error=" + encodeURIComponent(err.message));
+  }
+});
+
+// ── POST /api/test-cookie-login  Diagnose cookie-mode login step by step ───────
+app.post("/api/test-cookie-login", async (req, res) => {
+  const steps = [];
+  const log = (msg) => { steps.push(msg); logLine("[cookie-test] " + msg); };
+
+  try {
+    log("🔍 Starte Cookie-Mode Diagnose…");
+
+    // 1. open.spotify.com laden
+    log("1/5 Lade open.spotify.com …");
+    const homeRes = await fetch("https://open.spotify.com/", {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html",
+      },
+    });
+    log(`    HTTP ${homeRes.status} ${homeRes.ok ? "✅" : "❌"}`);
+    if (!homeRes.ok) return res.json({ ok: false, steps });
+
+    const html = await homeRes.text();
+    log(`    HTML empfangen (${(html.length / 1024).toFixed(0)} KB)`);
+
+    // 2. JS-Links extrahieren
+    const jsLinkRe = /["'](https?:\/\/[^"']+\.js(?:\?[^"']*)?)["']/gi;
+    const jsLinks = new Set();
+    let m;
+    while ((m = jsLinkRe.exec(html)) !== null) {
+      if (m[1].includes("spotify")) jsLinks.add(m[1]);
+    }
+    log(`2/5 JS-Links gefunden: ${jsLinks.size}`);
+    for (const l of jsLinks) log(`    • ${l.split("/").pop().split("?")[0]}`);
+
+    // 3. Bundles laden, web-player identifizieren
+    log("3/5 Lade JS-Bundles …");
+    let webPlayerCode = "";
+    let webPlayerUrl = "";
+    for (const url of jsLinks) {
+      const filename = url.split("/").pop().split("?")[0];
+      try {
+        const bRes = await fetch(url);
+        const code = bRes.ok ? await bRes.text() : "";
+        const hasSecret = /secret\s*:\s*["']/i.test(code);
+        log(`    ${filename} (${(code.length/1024).toFixed(0)} KB) — secret: ${hasSecret ? "✅" : "❌"}`);
+        if (filename.startsWith("web-player.") && bRes.ok) {
+          webPlayerCode = code;
+          webPlayerUrl = filename;
+        }
+      } catch (e) {
+        log(`    ${filename} — Fehler: ${e.message}`);
+      }
+    }
+
+    if (!webPlayerCode) {
+      log("❌ Kein web-player.* Bundle gefunden — kein TOTP-Secret extrahierbar");
+      return res.json({ ok: false, steps });
+    }
+    log(`    Verwende: ${webPlayerUrl}`);
+
+    // 4. TOTP-Secret extrahieren
+    log("4/5 Extrahiere TOTP-Secret …");
+    const secretRe = /secret\s*:\s*(["'])(.*?)\1\s*,?\s*version\s*:\s*(\d+)/gis;
+    const secrets = [];
+    let sm;
+    while ((sm = secretRe.exec(webPlayerCode)) !== null) {
+      secrets.push({ secret: sm[2], version: parseInt(sm[3], 10) });
+    }
+    log(`    Gefunden: ${secrets.length} Secret(s) — Versionen: ${secrets.map(s => "v" + s.version).join(", ")}`);
+    if (secrets.length === 0) {
+      log("❌ Kein TOTP-Secret gefunden — Regex-Treffer prüfen");
+      return res.json({ ok: false, steps });
+    }
+    secrets.sort((a, b) => b.version - a.version);
+    const { secret, version } = secrets[0];
+    log(`    Verwende v${version}, Secret-Länge: ${secret.length} Zeichen`);
+
+    // 5. TOTP berechnen + Token abrufen (mit sp_dc Cookie falls vorhanden)
+    log("5/5 Berechne TOTP und rufe Token ab …");
+    const xored = [];
+    for (let i = 0; i < secret.length; i++) {
+      xored.push(secret.charCodeAt(i) ^ ((i % 33) + 9));
+    }
+    const joined = xored.map(n => String(n)).join("");
+    const hexStr = Array.from(joined).map(c => c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    const secretBytes = Buffer.from(hexStr, "hex");
+
+    const crypto = require("crypto");
+    const counter = BigInt(Math.floor(Date.now() / 1000 / 30));
+    const msg = Buffer.alloc(8);
+    msg.writeBigUInt64BE(counter, 0);
+    const hmac = crypto.createHmac("sha1", secretBytes);
+    hmac.update(msg);
+    const digest = hmac.digest();
+    const offset = digest[digest.length - 1] & 0x0f;
+    const totp = String((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(6, "0");
+    log(`    TOTP: ${totp} (v${version})`);
+
+    // sp_dc: prefer value sent from form field, fall back to saved config
+    const spDc = (req.body && req.body.sp_dc && req.body.sp_dc.trim())
+      ? req.body.sp_dc.trim()
+      : (() => { const cfg = loadConfig(); return cfg.spotify && cfg.spotify.sp_dc ? cfg.spotify.sp_dc : ""; })();
+    const tokenHeaders = {
+      "Accept": "application/json",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    };
+    if (spDc) {
+      tokenHeaders["Cookie"] = `sp_dc=${spDc}`;
+      log(`    sp_dc Cookie vorhanden (${spDc.length} Zeichen) ✅`);
+    } else {
+      log(`    ⚠ Kein sp_dc Cookie konfiguriert — Token wird anonym sein`);
+    }
+
+    const tokenUrl = `https://open.spotify.com/api/token?reason=init&productType=web-player&totp=${totp}&totpServer=${totp}&totpVer=${version}`;
+    const tokenRes = await fetch(tokenUrl, { headers: tokenHeaders });
+    const tokenData = await tokenRes.json().catch(() => ({}));
+
+    const isAnon = tokenData.isAnonymous !== false;
+    log(`    Token-Endpoint HTTP ${tokenRes.status} — accessToken: ${!!tokenData.accessToken ? "✅" : "❌"} — isAnonymous: ${isAnon}`);
+
+    if (!tokenData.accessToken) {
+      log("❌ Kein Access-Token erhalten");
+      return res.json({ ok: false, steps });
+    }
+
+    if (isAnon) {
+      log("❌ Token ist anonym — sp_dc Cookie fehlt oder ist abgelaufen.");
+      log("");
+      log("📋 So erhältst du den sp_dc Cookie:");
+      log("   1. Öffne https://open.spotify.com im Browser und melde dich an.");
+      log("   2. Öffne die Browser-DevTools (F12) → Reiter 'Application' (Chrome) oder 'Storage' (Firefox).");
+      log("   3. Navigiere zu Cookies → https://open.spotify.com");
+      log("   4. Kopiere den Wert des Cookies 'sp_dc'.");
+      log("   5. Füge ihn im Feld 'sp_dc Cookie' im Setup-Wizard / Config ein.");
+      return res.json({ ok: false, steps });
+    }
+
+    log("✅ Cookie-Mode Login-Diagnose erfolgreich! Nutzer ist eingeloggt.");
+    return res.json({ ok: true, steps });
+  } catch (err) {
+    steps.push("❌ Unerwarteter Fehler: " + err.message);
+    return res.json({ ok: false, steps });
   }
 });
 
@@ -509,51 +696,32 @@ app.post("/api/create-playlist", async (req, res) => {
   try {
     const config = loadConfig();
     const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const token  = tokenManager.loadToken();
-
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
-    }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-    });
-    spotifyApi.setAccessToken(token.access_token);
+    const client = createClient(config, creds);
+    await client.initialize();
 
     // Get current user's ID
-    const meData = await spotifyApi.getMe();
-    const userId = meData.body.id;
+    const me     = await client.getMe();
+    const userId = me.id;
 
     // Create playlist
-    const result = await spotifyApi.createPlaylist("Daily Drive by IBM Bob", {
+    const { id, name } = await client.createPlaylist("Daily Drive by IBM Bob", {
       description: "Auto-generated by Daily Drive · IBM Bob",
       public: false,
     });
 
-    const id   = result.body.id;
-    const name = result.body.name;
-
-    // Upload playlist cover image (JPEG, base64-encoded, max 256 KB)
+    // Upload playlist cover image
     try {
-      const coverPath = path.join(__dirname, "public", "img", "dailydrive.jpg");
-      const coverB64  = fs.readFileSync(coverPath).toString("base64");
-      const imgRes = await fetch(`https://api.spotify.com/v1/playlists/${id}/images`, {
-        method:  "PUT",
-        headers: {
-          Authorization:  `Bearer ${token.access_token}`,
-          "Content-Type": "image/jpeg",
-        },
-        body: coverB64,
-      });
-      if (!imgRes.ok) {
-        const errBody = await imgRes.text().catch(() => "");
-        throw new Error(`HTTP ${imgRes.status}: ${errBody}`);
-      }
+      const coverPath = path.join(__dirname, "public", "img", "playlist-cover.jpg");
+      const coverBuf  = fs.readFileSync(coverPath);
+      await client.setPlaylistCoverImage(id, coverBuf);
       logLine(`🖼️  Cover image set for playlist ${id}`);
     } catch (imgErr) {
-      logLine(`⚠️  Could not set playlist cover: ${imgErr.message}`);
-      // Non-fatal — playlist was created successfully
+      if (imgErr.name === "NotSupportedError") {
+        logLine(`ℹ️  Cover image not supported in current API mode — skipping`);
+      } else {
+        logLine(`⚠️  Could not set playlist cover: ${imgErr.message}`);
+        // Non-fatal — playlist was created successfully
+      }
     }
 
     logLine(`✅ Created playlist "${name}" (${id}) for user ${userId}`);
@@ -568,18 +736,17 @@ app.post("/api/create-playlist", async (req, res) => {
 app.get("/setup/authorize", (req, res) => {
   try {
     const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
+    if ((config.api_mode || "oauth") !== "oauth") {
+      return res.status(400).json({ error: "This endpoint is only available in OAuth mode" });
+    }
 
+    const creds = resolveSpotifyCredentials(config.spotify || {});
     if (!creds.client_id || !creds.client_secret) {
       return res.redirect("/setup?step=1&error=Missing+Spotify+credentials");
     }
 
     const redirectUri = getRedirectUri(req);
-    const spotifyApi  = new SpotifyWebApi({
-      clientId:    creds.client_id,
-      clientSecret:creds.client_secret,
-      redirectUri,
-    });
+    const oauthClient = new OAuthSpotifyClient({ ...creds, redirect_uri: redirectUri });
 
     const SCOPES = [
       "playlist-modify-public", "playlist-modify-private",
@@ -592,7 +759,7 @@ app.get("/setup/authorize", (req, res) => {
     // Use a different state value when the user is re-authorising (playlist
     // already configured) so /callback can redirect straight to the dashboard.
     const isReauth = !!(config.playlist_id && config.playlist_id !== "your-playlist-id-here");
-    const authUrl = spotifyApi.createAuthorizeURL(SCOPES, isReauth ? "dailydrive_reauth" : "dailydrive");
+    const authUrl = oauthClient.getOAuthUrl(SCOPES, isReauth ? "dailydrive_reauth" : "dailydrive");
     res.redirect(authUrl);
   } catch (err) {
     logLine("❌ /setup/authorize error: " + err.message);
@@ -614,21 +781,15 @@ app.get("/callback", async (req, res) => {
 
   try {
     const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
+    if ((config.api_mode || "oauth") !== "oauth") {
+      return res.status(400).json({ error: "This endpoint is only available in OAuth mode" });
+    }
+
+    const creds       = resolveSpotifyCredentials(config.spotify || {});
     const redirectUri = getRedirectUri(req);
+    const oauthClient = new OAuthSpotifyClient({ ...creds, redirect_uri: redirectUri });
 
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-      redirectUri,
-    });
-
-    const data = await spotifyApi.authorizationCodeGrant(code);
-    tokenManager.saveToken({
-      access_token:  data.body.access_token,
-      refresh_token: data.body.refresh_token,
-      expires_at:    Date.now() + data.body.expires_in * 1000,
-    });
+    await oauthClient.exchangeCode(code);
 
     logLine("✅ Spotify OAuth successful — token saved");
     const { state } = req.query;
@@ -647,6 +808,11 @@ app.post("/setup/callback-paste", async (req, res) => {
   }
 
   try {
+    const config = loadConfig();
+    if ((config.api_mode || "oauth") !== "oauth") {
+      return res.status(400).json({ error: "This endpoint is only available in OAuth mode" });
+    }
+
     const trimmedUrl = callback_url.trim();
     const urlObj = new URL(trimmedUrl);
     const code = urlObj.searchParams.get("code");
@@ -661,24 +827,13 @@ app.post("/setup/callback-paste", async (req, res) => {
       return res.redirect("/setup?step=2&error=No+authorization+code+found+in+the+URL");
     }
 
-    const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
+    const creds = resolveSpotifyCredentials(config.spotify || {});
 
     // Reconstruct the exact redirectUri used in the authorize link
     const redirectUri = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname}`;
+    const oauthClient = new OAuthSpotifyClient({ ...creds, redirect_uri: redirectUri });
 
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-      redirectUri,
-    });
-
-    const data = await spotifyApi.authorizationCodeGrant(code);
-    tokenManager.saveToken({
-      access_token:  data.body.access_token,
-      refresh_token: data.body.refresh_token,
-      expires_at:    Date.now() + data.body.expires_in * 1000,
-    });
+    await oauthClient.exchangeCode(code);
 
     logLine("✅ Spotify OAuth successful via URL copy-paste — token saved");
     res.redirect(state === "dailydrive_reauth" ? "/?reauth=1" : "/setup?step=3");
@@ -690,7 +845,10 @@ app.post("/setup/callback-paste", async (req, res) => {
 
 // ── GET /reauth  Re-authorization page (NAS-aware) ───────────────────────────
 app.get("/reauth", (req, res) => {
-  const config      = loadConfig();
+  const config = loadConfig();
+  if ((config.api_mode || "oauth") !== "oauth") {
+    return res.status(400).json({ error: "This endpoint is only available in OAuth mode" });
+  }
   const creds       = resolveSpotifyCredentials(config.spotify || {});
   const redirectUri = getRedirectUri(req);
 
@@ -757,7 +915,16 @@ app.post("/config", (req, res) => {
   const existing = loadConfig();
   const b = req.body;
 
+  // api_mode
+  const apiMode = (b.api_mode === "cookie") ? "cookie" : "oauth";
+
+  // Cookie-mode: sp_dc cookie value
+  // Guard against the placeholder '••••••••' rendered by config.ejs for existing values
+  const rawSpDc = (b.spotify && b.spotify.sp_dc) ? b.spotify.sp_dc.trim() : '';
+  const newSpDc = (rawSpDc && !rawSpDc.startsWith('•')) ? rawSpDc : null;
+
   const cfg = {
+    api_mode: apiMode,
     spotify: {
       client_id:    (b.client_id    || existing.spotify?.client_id    || "").trim(),
       client_secret:(b.client_secret && b.client_secret.trim() !== "(unchanged)" && b.client_secret.trim() !== "")
@@ -765,6 +932,8 @@ app.post("/config", (req, res) => {
                       : (existing.spotify?.client_secret || ""),
       redirect_uri: (b.redirect_uri || existing.spotify?.redirect_uri ||
                      `http://${req.headers.host}/callback`).trim(),
+      // sp_dc cookie for cookie mode (preserved from existing if not provided)
+      ...(newSpDc ? { sp_dc: newSpDc } : (existing.spotify?.sp_dc ? { sp_dc: existing.spotify.sp_dc } : {})),
     },
     playlist_id: (b.playlist_id || "").trim(),
     podcasts: [],
@@ -924,35 +1093,13 @@ app.get("/about", (req, res) => {
 // ── GET /api/user-playlists  Get current user's playlists ─────────────────────
 app.get("/api/user-playlists", async (req, res) => {
   try {
-    const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const token  = await tokenManager.refreshTokenIfNeeded();
+    const config  = loadConfig();
+    const apiMode = req.query.mode || config.api_mode || "oauth";
+    const creds   = resolveSpotifyCredentials(config.spotify || {});
+    const client  = createSpotifyClient(apiMode, creds);
+    await client.initialize();
 
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
-    }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-    });
-    spotifyApi.setAccessToken(token.access_token);
-
-    const [playlistData, meData] = await Promise.all([
-      spotifyApi.getUserPlaylists({ limit: 50 }),
-      spotifyApi.getMe(),
-    ]);
-    const myUserId = meData.body.id;
-    const playlists = playlistData.body.items.map(item => ({
-      id: item.id,
-      name: item.name,
-      images: item.images,
-      owner: item.owner?.display_name,
-      owner_id: item.owner?.id,
-      is_own: item.owner?.id === myUserId,
-      tracks_total: item.tracks?.total != null ? item.tracks.total : (item.items?.total != null ? item.items.total : 0),
-    }));
-
+    const playlists = await client.getUserPlaylists({ limit: 50 });
     res.json(playlists);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -962,28 +1109,13 @@ app.get("/api/user-playlists", async (req, res) => {
 // ── GET /api/user-podcasts  Get current user's followed shows ──────────────────
 app.get("/api/user-podcasts", async (req, res) => {
   try {
-    const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const token  = await tokenManager.refreshTokenIfNeeded();
+    const config  = loadConfig();
+    const apiMode = req.query.mode || config.api_mode || "oauth";
+    const creds   = resolveSpotifyCredentials(config.spotify || {});
+    const client  = createSpotifyClient(apiMode, creds);
+    await client.initialize();
 
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
-    }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-    });
-    spotifyApi.setAccessToken(token.access_token);
-
-    const data = await spotifyApi.getMySavedShows({ limit: 50 });
-    const shows = data.body.items.map(entry => ({
-      id: entry.show?.id,
-      name: entry.show?.name,
-      publisher: entry.show?.publisher,
-      images: entry.show?.images,
-    }));
-
+    const shows = await client.getMySavedShows({ limit: 50 });
     res.json(shows);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -998,37 +1130,17 @@ app.get("/api/search", async (req, res) => {
       return res.json([]);
     }
 
-    const config = loadConfig();
-    const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const token  = await tokenManager.refreshTokenIfNeeded();
-
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
-    }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-    });
-    spotifyApi.setAccessToken(token.access_token);
+    const config  = loadConfig();
+    const apiMode = req.query.mode || config.api_mode || "oauth";
+    const creds   = resolveSpotifyCredentials(config.spotify || {});
+    const client  = createSpotifyClient(apiMode, creds);
+    await client.initialize();
 
     let results = [];
     if (type === "show") {
-      const data = await spotifyApi.searchShows(q, { limit: 10 });
-      results = data.body.shows.items.map(item => ({
-        id: item.id,
-        name: item.name,
-        publisher: item.publisher,
-        images: item.images,
-      }));
+      results = await client.searchShows(q, { limit: 10 });
     } else {
-      const data = await spotifyApi.searchPlaylists(q, { limit: 10 });
-      results = data.body.playlists.items.map(item => ({
-        id: item.id,
-        name: item.name,
-        images: item.images,
-        owner: item.owner?.display_name,
-      }));
+      results = await client.searchPlaylists(q, { limit: 10 });
     }
 
     res.json(results);
@@ -1042,37 +1154,26 @@ app.get("/api/taste-prompt", async (req, res) => {
   try {
     const config = loadConfig();
     const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const token  = await tokenManager.refreshTokenIfNeeded();
-
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated — complete Step 3 first" });
-    }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-    });
-    spotifyApi.setAccessToken(token.access_token);
+    const client = createClient(config, creds);
+    await client.initialize();
 
     const artistCounts = {};
     const trackSamples = [];
 
     for (const range of ["short_term", "medium_term", "long_term"]) {
-      const data = await spotifyApi.getMyTopTracks({ limit: 50, time_range: range });
-      for (const track of data.body.items) {
-        trackSamples.push({
-          name: track.name,
-          artists: track.artists.map((a) => a.name),
-        });
-        for (const artist of track.artists) {
-          artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 1;
+      const tracks = await client.getMyTopTracks({ limit: 50, time_range: range });
+      for (const track of tracks) {
+        const artists = track.artist ? track.artist.split(", ") : [];
+        trackSamples.push({ name: track.name, artists });
+        for (const artistName of artists) {
+          artistCounts[artistName] = (artistCounts[artistName] || 0) + 1;
         }
       }
     }
 
     for (const range of ["short_term", "medium_term", "long_term"]) {
-      const data = await spotifyApi.getMyTopArtists({ limit: 50, time_range: range });
-      for (const artist of data.body.items) {
+      const artists = await client.getMyTopArtists({ limit: 50, time_range: range });
+      for (const artist of artists) {
         artistCounts[artist.name] = (artistCounts[artist.name] || 0) + 2;
       }
     }
@@ -1129,23 +1230,13 @@ dance pop`;
 // ── GET /api/playlist-info/:id  Name + image for a single playlist ────────────
 app.get("/api/playlist-info/:id", async (req, res) => {
   try {
-    const token = await tokenManager.refreshTokenIfNeeded();
-    if (!token || !token.access_token) {
-      return res.status(401).json({ error: "Not authenticated" });
-    }
-    const apiRes = await fetch(
-      `https://api.spotify.com/v1/playlists/${req.params.id}?fields=id,name,images,owner,tracks.total`,
-      { headers: { Authorization: `Bearer ${token.access_token}` } }
-    );
-    if (!apiRes.ok) return res.status(apiRes.status).json({ error: "Spotify API error" });
-    const data = await apiRes.json();
-    res.json({
-      id:           data.id,
-      name:         data.name,
-      image:        data.images?.[0]?.url || null,
-      owner:        data.owner?.display_name || null,
-      tracks_total: data.tracks?.total != null ? data.tracks.total : 0,
-    });
+    const config = loadConfig();
+    const creds  = resolveSpotifyCredentials(config.spotify || {});
+    const client = createClient(config, creds);
+    await client.initialize();
+
+    const info = await client.getPlaylistInfo(req.params.id);
+    res.json(info);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1242,8 +1333,13 @@ app.listen(WEB_PORT, "0.0.0.0", () => {
   logLine(`   Data directory : ${PATHS.DATA_DIR}`);
   logLine(`   Refresh interval: ${getRefreshIntervalStr()}`);
 
-  // Start background token refresh daemon (check every 30 min)
-  tokenManager.startTokenRefreshDaemon(30 * 60 * 1000);
+  // Start background token refresh daemon in OAuth mode only (check every 30 min)
+  const _startCfg = loadConfig();
+  if ((_startCfg.api_mode || "oauth") === "oauth") {
+    const _daemonCreds = resolveSpotifyCredentials(_startCfg.spotify || {});
+    const _daemonClient = new OAuthSpotifyClient(_daemonCreds);
+    _daemonClient.startDaemon(30 * 60 * 1000);
+  }
 
   // Start the playlist refresh scheduler
   startScheduler();

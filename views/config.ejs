@@ -30,8 +30,45 @@
 
 <form action="/config" method="POST" id="config-form">
 
-  <!-- ===== Spotify ===== -->
+  <!-- ===== API-Modus ===== -->
   <div class="card">
+    <div class="card-title">API-Modus</div>
+
+    <div class="form-group">
+      <label>Backend</label>
+      <select name="api_mode" onchange="onApiModeChange(this.value)">
+        <option value="oauth" <%= (config.api_mode || 'oauth') !== 'cookie' ? 'selected' : '' %>>OAuth (Empfohlen)</option>
+        <option value="cookie" <%= config.api_mode === 'cookie' ? 'selected' : '' %>>Spotify Account (Cookie)</option>
+      </select>
+      <p class="field-hint">Wechsel erfordert erneutes Verbinden im Setup-Wizard.</p>
+    </div>
+
+    <!-- Cookie-Modus Credentials -->
+    <div id="cookie-credentials" style="display:<%= config.api_mode === 'cookie' ? 'block' : 'none' %>">
+      <div class="form-group">
+        <label>sp_dc Cookie</label>
+        <input type="password" name="spotify[sp_dc]" autocomplete="off"
+          value="<%= config.spotify && config.spotify.sp_dc ? '••••••••' : '' %>"
+          placeholder="AQB3...langer Cookie-Wert...">
+        <p class="field-hint">
+          Aus Browser-DevTools: <strong>F12 → Application → Cookies → open.spotify.com → sp_dc</strong>.
+          Leer lassen um bestehenden Cookie beizubehalten.
+        </p>
+      </div>
+    </div>
+
+    <!-- Cookie-Modus Test-Button -->
+    <div id="cookie-test-panel-config" style="display:<%= config.api_mode === 'cookie' ? 'block' : 'none' %>;margin-top:.75rem">
+      <button type="button" id="cookie-test-btn-config" class="btn" style="background:rgba(15,98,254,.12);border:1px solid #0f62fe;color:#0f62fe;font-size:.85rem;padding:.4rem 1rem" onclick="runCookieTestConfig()">
+        🔍 Verbindung testen
+      </button>
+      <div id="cookie-test-output-config" style="display:none;margin-top:.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-family:monospace;font-size:.8rem;line-height:1.6;white-space:pre-wrap;max-height:260px;overflow-y:auto"></div>
+    </div>
+
+  </div>
+
+  <!-- ===== Spotify ===== -->
+  <div class="card" id="oauth-credentials-card" style="display:<%= config.api_mode === 'cookie' ? 'none' : 'block' %>">
     <div class="card-title" data-i18n="config_section_spotify">Spotify</div>
 
     <div class="form-group">
@@ -316,8 +353,9 @@
       <div class="spinner"></div>
     </div>
 
-    <div id="picker-empty" class="picker-empty" style="display: none;" data-i18n="dash_playlist_empty">
-      No items found.
+    <div id="picker-empty" class="picker-empty" style="display: none;">
+      <span id="picker-empty-text"></span>
+      <button type="button" id="picker-empty-search-btn" class="btn btn-ghost" style="display:none;margin-top:.75rem;font-size:.85rem" onclick="switchPickerTab('search')" data-i18n="picker_tab_search">Search</button>
     </div>
 
     <div class="picker-results-grid" id="picker-results">
@@ -364,6 +402,55 @@
 </div>
 
 <script>
+function onApiModeChange(val) {
+  const isCookie = (val === 'cookie');
+  document.getElementById('cookie-credentials').style.display = isCookie ? 'block' : 'none';
+  document.getElementById('oauth-credentials-card').style.display = isCookie ? 'none' : 'block';
+  document.getElementById('cookie-test-panel-config').style.display = isCookie ? 'block' : 'none';
+  // Reset test output on mode switch
+  document.getElementById('cookie-test-output-config').style.display = 'none';
+  document.getElementById('cookie-test-output-config').textContent = '';
+}
+
+async function runCookieTestConfig() {
+  const btn = document.getElementById('cookie-test-btn-config');
+  const out = document.getElementById('cookie-test-output-config');
+  btn.disabled = true;
+  btn.textContent = '⏳ Teste …';
+  out.style.display = 'block';
+  out.textContent = 'Starte Diagnose …\n';
+
+  // Read sp_dc from the input field — skip placeholder value
+  const fieldVal = (document.querySelector('[name="spotify[sp_dc]"]') || {}).value || '';
+  const spDc = (fieldVal && !fieldVal.startsWith('•')) ? fieldVal.trim() : '';
+
+  try {
+    const resp = await fetch('/api/test-cookie-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sp_dc: spDc }),
+    });
+    const data = await resp.json();
+    out.textContent = data.steps.join('\n');
+    if (data.ok) {
+      btn.style.background = 'rgba(36,161,72,.15)';
+      btn.style.borderColor = '#24a148';
+      btn.style.color = '#24a148';
+      btn.textContent = '✅ Verbindung erfolgreich';
+    } else {
+      btn.style.background = 'rgba(218,30,40,.12)';
+      btn.style.borderColor = '#da1e28';
+      btn.style.color = '#da1e28';
+      btn.textContent = '❌ Verbindung fehlgeschlagen';
+    }
+  } catch (e) {
+    out.textContent += '\n❌ Netzwerkfehler: ' + e.message;
+    btn.textContent = '❌ Fehler';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 let podcastCount = <%= (config.podcasts || []).length %>;
 let plCount      = <%= (config.music && config.music.playlists ? config.music.playlists.length : 0) %>;
 
@@ -537,9 +624,6 @@ function addPlaylist(id = '', name = '', tracksTotal = '') {
   div.className = 'item-entry';
   div.id = 'pl-' + i;
   div.dataset.playlistId = id;
-  if (tracksTotal !== '' && tracksTotal != null) {
-    div.dataset.tracksTotal = tracksTotal;
-  }
   div.innerHTML = `
     <div class="form-group" style="margin:0">
       <label>${DDLang.t('config_podcast_name')}</label>
@@ -550,11 +634,13 @@ function addPlaylist(id = '', name = '', tracksTotal = '') {
   `;
   document.getElementById('playlist-list').appendChild(div);
 
-  // If tracks count was not passed, fetch it asynchronously
-  if (tracksTotal === '' || tracksTotal == null) {
-    fetchPlaylistTrackCount(id, div);
-  } else {
+  // Only trust tracksTotal if it's a positive number; otherwise fetch from API
+  const knownTotal = tracksTotal != null && tracksTotal !== '' && parseInt(tracksTotal, 10) > 0;
+  if (knownTotal) {
+    div.dataset.tracksTotal = parseInt(tracksTotal, 10);
     updateMusicComposition();
+  } else {
+    fetchPlaylistTrackCount(id, div);
   }
 }
 
@@ -626,7 +712,7 @@ function openPicker(type) {
     titleEl.innerHTML = DDLang.t('config_playlists') + ' - ' + DDLang.t('picker_select');
   }
 
-  // For playlists: hide Search tab — only own playlists can be read in Dev Mode
+  // For playlists: hide Search tab — only own playlists can be used as music source in Dev Mode
   const isPlaylistPicker = (type === 'playlist' || type === 'target_playlist');
   document.getElementById('tab-search').style.display = isPlaylistPicker ? 'none' : '';
 
@@ -634,8 +720,11 @@ function openPicker(type) {
   document.getElementById('tab-library').classList.add('active');
   document.getElementById('tab-search').classList.remove('active');
   document.getElementById('picker-search-container').style.display = 'none';
+  document.getElementById('picker-empty').style.display = 'none';
+  document.getElementById('picker-empty-text').textContent = '';
+  document.getElementById('picker-empty-search-btn').style.display = 'none';
   document.getElementById('spotify-picker').classList.add('show');
-  
+
   loadLibraryData();
 }
 
@@ -671,14 +760,25 @@ async function loadLibraryData() {
 
   try {
     const apiType = currentPickerType === 'show' ? 'show' : 'playlist';
+    const apiMode = document.querySelector('[name="api_mode"]')?.value || '<%= config.api_mode || "oauth" %>';
     const endpoint = apiType === 'show' ? '/api/user-podcasts' : '/api/user-playlists';
-    const resp = await fetch(endpoint);
-    if (!resp.ok) throw new Error('API error');
-    
+    const resp = await fetch(`${endpoint}?mode=${encodeURIComponent(apiMode)}`);
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${resp.status}`);
+    }
+
     const items = await resp.json();
     loadingEl.style.display = 'none';
 
     if (!items || items.length === 0) {
+      const isShow = currentPickerType === 'show';
+      const isPlaylist = (currentPickerType === 'playlist' || currentPickerType === 'target_playlist');
+      document.getElementById('picker-empty-text').textContent = isShow
+        ? DDLang.t('picker_empty_shows') || 'No saved podcasts found. Use Search to find shows by name.'
+        : DDLang.t('picker_empty_playlists') || 'No playlists found in your library.';
+      // Show "Search" button only for podcasts (playlists can't be searched in Dev Mode)
+      document.getElementById('picker-empty-search-btn').style.display = isShow ? 'inline-block' : 'none';
       emptyEl.style.display = 'block';
       return;
     }
@@ -686,7 +786,7 @@ async function loadLibraryData() {
     renderPickerItems(items);
   } catch (e) {
     loadingEl.style.display = 'none';
-    resultsGrid.innerHTML = `<p style="color: var(--red); text-align: center; padding: 1rem;">Failed to load library items: ${e.message}</p>`;
+    resultsGrid.innerHTML = `<p style="color: var(--red); text-align: center; padding: 1rem;">${e.message}</p>`;
   }
 }
 
@@ -704,9 +804,13 @@ async function performPickerSearch() {
 
   try {
     const apiType = currentPickerType === 'show' ? 'show' : 'playlist';
-    const resp = await fetch(`/api/search?type=${apiType}&q=${encodeURIComponent(query)}`);
-    if (!resp.ok) throw new Error('API error');
-    
+    const apiMode = document.querySelector('[name="api_mode"]')?.value || '<%= config.api_mode || "oauth" %>';
+    const resp = await fetch(`/api/search?type=${apiType}&q=${encodeURIComponent(query)}&mode=${encodeURIComponent(apiMode)}`);
+    if (!resp.ok) {
+      const errData = await resp.json().catch(() => ({}));
+      throw new Error(errData.error || `HTTP ${resp.status}`);
+    }
+
     const items = await resp.json();
     loadingEl.style.display = 'none';
 

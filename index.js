@@ -16,7 +16,6 @@ const fs = require("fs");
 
 // --- Third-party libraries (installed via npm install) ---
 const yaml = require("js-yaml");               // Parses YAML config files
-const SpotifyWebApi = require("spotify-web-api-node"); // Wraps the Spotify Web API
 
 // --- Centralised path & credential resolution ---
 const { PATHS, resolveSpotifyCredentials } = require("./paths");
@@ -34,18 +33,9 @@ const PODCAST_ONLY = process.argv.includes("--podcast-only"); // Hourly mode: on
 let log    = (...a) => console.log(...a);
 let logErr = (...a) => console.error(...a);
 
-// ---------------------------------------------------------------------------
-// SpotifyQuotaError — thrown when Spotify returns 429 Too Many Requests.
-// Carries the retryAfter value (seconds) from the Retry-After response header
-// so callers can schedule the next attempt correctly.
-// ---------------------------------------------------------------------------
-class SpotifyQuotaError extends Error {
-  constructor(retryAfterSeconds) {
-    super(`Spotify rate limit hit — retry after ${retryAfterSeconds}s`);
-    this.name = "SpotifyQuotaError";
-    this.retryAfter = retryAfterSeconds; // seconds to wait
-  }
-}
+// --- Spotify client abstraction ---
+const { SpotifyQuotaError } = require("./spotify-client-base");
+const { createSpotifyClient } = require("./spotify-client-factory");
 
 function setLogger(fn) { log = fn; logErr = fn; }
 
@@ -73,24 +63,6 @@ function loadConfig() {
   const creds = resolveSpotifyCredentials(config.spotify || {});
   config.spotify = creds;
   return config;
-}
-
-// Token I/O and refresh delegated to token-manager.js
-const tokenManager = require("./token-manager");
-
-function loadToken() {
-  const token = tokenManager.loadToken();
-  if (!token) {
-    const msg = "Not authenticated — please re-authorize via the web UI.";
-    logErr("❌ " + msg);
-    if (require.main === module) process.exit(1);
-    throw new Error(msg);
-  }
-  return token;
-}
-
-function saveToken(tokenData) {
-  tokenManager.saveToken(tokenData);
 }
 
 /**
@@ -126,20 +98,6 @@ function shuffle(array) {
   return arr;
 }
 
-/**
- * Refreshes the Spotify access token if expiring within 5 minutes.
- * Delegates to token-manager; then syncs the refreshed token into spotifyApi.
- */
-async function refreshTokenIfNeeded(spotifyApi, token) {
-  const updated = await tokenManager.refreshTokenIfNeeded(5 * 60 * 1000);
-  if (updated && updated.access_token !== token.access_token) {
-    token.access_token = updated.access_token;
-    token.expires_at   = updated.expires_at;
-    if (updated.refresh_token) token.refresh_token = updated.refresh_token;
-    spotifyApi.setAccessToken(token.access_token);
-  }
-}
-
 // =============================================================================
 // Core Logic
 // =============================================================================
@@ -152,7 +110,7 @@ async function refreshTokenIfNeeded(spotifyApi, token) {
  * quickly on Spotify. If you see "[unavailable]" in your playlist, run the
  * script again to fetch the latest episode.
  */
-async function fetchPodcastEpisodes(spotifyApi, podcasts) {
+async function fetchPodcastEpisodes(client, podcasts) {
   const episodes = [];
 
   for (const podcast of podcasts) {
@@ -161,18 +119,19 @@ async function fetchPodcastEpisodes(spotifyApi, podcasts) {
     log(`🎙️  Fetching ${count} episode(s) from: ${podcast.name}`);
 
     try {
-      // Ask Spotify for the most recent episodes of this show
-      const data = await spotifyApi.getShowEpisodes(podcast.id, {
+      // Ask Spotify for the most recent episodes of this show.
+      // Client returns normalised objects: { uri, name, type }
+      const items = await client.getShowEpisodes(podcast.id, {
         limit: count,
         market: "US", // Required for episode availability
       });
 
-      for (const episode of data.body.items) {
+      for (const episode of items) {
         episodes.push({
-          uri: episode.uri,      // Spotify URI like "spotify:episode:abc123"
-          name: episode.name,
-          show: podcast.name,
-          type: "episode",
+          uri:      episode.uri,
+          name:     episode.name,
+          show:     podcast.name,
+          type:     "episode",
           position: podcast.position || null, // "first" = pinned to top of playlist
         });
         log(`    📌 ${episode.name}`);
@@ -193,7 +152,7 @@ async function fetchPodcastEpisodes(spotifyApi, podcasts) {
  *
  * Tracks are shuffled and trimmed to the requested count.
  */
-async function fetchMusicTracks(spotifyApi, musicConfig) {
+async function fetchMusicTracks(client, musicConfig) {
   let allTracks = [];
 
   // --- Source 1: Pull tracks from user-specified playlists ---
@@ -205,53 +164,24 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
       log(`🎵 Fetching songs from playlist: ${playlist.name}`);
 
       try {
-        // Spotify returns max 100 items per request, so we paginate through
-        // larger playlists by incrementing the offset
-        const accessToken = spotifyApi.getAccessToken();
+        // Paginate through the playlist using the client's getPlaylistItems().
+        // The client handles the /items endpoint internally (the old /tracks
+        // endpoint was deprecated in Feb 2026 and now returns 403 Forbidden).
         let offset = 0;
         let hasMore = true;
 
         while (hasMore) {
-          // IMPORTANT: We use the /items endpoint directly via fetch() because
-          // the spotify-web-api-node library's getPlaylistTracks() still hits
-          // the old /tracks endpoint, which Spotify deprecated in Feb 2026 and
-          // now returns 403 Forbidden.
-          const res = await fetch(
-            `https://api.spotify.com/v1/playlists/${playlist.id}/items?limit=100&offset=${offset}`,
-            { headers: { Authorization: `Bearer ${accessToken}` } }
-          );
-
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-          }
-
-          const data = await res.json();
-
-          for (const entry of data.items) {
-            // The /items endpoint returns the content in entry.item
-            // Track detection: entry.item.track === true (not entry.item.type)
-            const track = entry.item;
-            if (track && track.uri && track.track === true) {
-              allTracks.push({
-                uri: track.uri,
-                name: track.name,
-                artist: track.artists?.map((a) => a.name).join(", ") || "Unknown",
-                type: "track",
-              });
-            }
-          }
-
+          const items = await client.getPlaylistItems(playlist.id, { limit: 100, offset });
+          allTracks.push(...items);
           offset += 100;
-          hasMore = offset < data.total;
+          // If fewer than 100 tracks were returned, there are no more pages.
+          // (getPlaylistItems already filters to tracks only.)
+          hasMore = items.length === 100;
         }
 
-        log(
-          `    Found ${allTracks.length} tracks so far`
-        );
+        log(`    Found ${allTracks.length} tracks so far`);
       } catch (err) {
-        logErr(
-          `    ⚠️  Failed to fetch playlist ${playlist.name}: ${err.message}`
-        );
+        logErr(`    ⚠️  Failed to fetch playlist ${playlist.name}: ${err.message}`);
       }
     }
   }
@@ -268,22 +198,12 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
       // Spotify returns max 50 saved tracks per request, so paginate if needed
       while (remaining > 0) {
         const limit = Math.min(remaining, 50);
-        const data = await spotifyApi.getMySavedTracks({ limit, offset });
-
-        for (const entry of data.body.items) {
-          const track = entry.track;
-          if (track && track.uri) {
-            allTracks.push({
-              uri: track.uri,
-              name: track.name,
-              artist: track.artists?.map((a) => a.name).join(", ") || "Unknown",
-              type: "track",
-            });
-          }
-        }
+        // Client returns normalised objects: { uri, name, artist, type }
+        const items = await client.getMySavedTracks({ limit, offset });
+        allTracks.push(...items);
 
         // If fewer tracks returned than requested, no more pages
-        if (data.body.items.length < limit) break;
+        if (items.length < limit) break;
         offset += limit;
         remaining -= limit;
       }
@@ -311,19 +231,12 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
       // Spotify returns max 50 top tracks per request, so paginate if needed
       while (remaining > 0) {
         const limit = Math.min(remaining, 50);
-        const data = await spotifyApi.getMyTopTracks({ limit, offset, time_range: timeRange });
-
-        for (const track of data.body.items) {
-          allTracks.push({
-            uri: track.uri,
-            name: track.name,
-            artist: track.artists?.map((a) => a.name).join(", ") || "Unknown",
-            type: "track",
-          });
-        }
+        // Client returns normalised objects: { uri, name, artist, type }
+        const items = await client.getMyTopTracks({ limit, offset, time_range: timeRange });
+        allTracks.push(...items);
 
         // If we got fewer tracks than requested, there are no more
-        if (data.body.items.length < limit) break;
+        if (items.length < limit) break;
         offset += limit;
         remaining -= limit;
       }
@@ -352,7 +265,7 @@ async function fetchMusicTracks(spotifyApi, musicConfig) {
  *
  * Tracks are split evenly across genres, then shuffled and trimmed.
  */
-async function fetchGenreTracks(spotifyApi, genres, count) {
+async function fetchGenreTracks(client, genres, count) {
   const tracks = [];
   // Divide the target count evenly among configured genres
   const perGenre = Math.ceil(count / genres.length);
@@ -360,21 +273,14 @@ async function fetchGenreTracks(spotifyApi, genres, count) {
   for (const genre of genres) {
     log(`🎵 Searching for ${genre} tracks...`);
     try {
-      // Use Spotify's search with a "genre:" filter
-      const data = await spotifyApi.searchTracks(`genre:${genre}`, {
+      // Use Spotify's search with a "genre:" filter.
+      // Client returns normalised objects: { uri, name, artist, type }
+      const items = await client.searchTracks(`genre:${genre}`, {
         limit: Math.min(perGenre, 10), // Spotify Dev Mode caps search at 10 results per query
         market: "US",
       });
-
-      for (const track of data.body.tracks.items) {
-        tracks.push({
-          uri: track.uri,
-          name: track.name,
-          artist: track.artists?.map((a) => a.name).join(", ") || "Unknown",
-          type: "track",
-        });
-      }
-      log(`    Found ${data.body.tracks.items.length} tracks`);
+      tracks.push(...items);
+      log(`    Found ${items.length} tracks`);
     } catch (err) {
       logErr(`    ⚠️  Failed to search genre ${genre}: ${err.message}`);
     }
@@ -472,11 +378,12 @@ function mixContent(episodes, tracks, pattern) {
 /**
  * Replaces the entire playlist with the given items.
  *
- * Uses the Spotify /items endpoint (NOT /tracks, which was deprecated in Feb 2026).
+ * Delegates to the client's replacePlaylistItems / addPlaylistItems methods,
+ * which handle the /items endpoint internally (NOT /tracks, deprecated Feb 2026).
  * PUT replaces the first 100 items; POST appends additional batches if needed.
  * This endpoint accepts both track and episode URIs.
  */
-async function updatePlaylist(spotifyApi, playlistId, items) {
+async function updatePlaylist(client, playlistId, items) {
   const uris = items.map((item) => item.uri);
 
   // In dry-run mode, just print what would happen and return
@@ -494,42 +401,13 @@ async function updatePlaylist(spotifyApi, playlistId, items) {
     return;
   }
 
-  // Get the current access token for direct API calls
-  const accessToken = spotifyApi.getAccessToken();
-
-  // PUT replaces the entire playlist with up to 100 items at once
-  const clearRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items`, {
-    method: "PUT",
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ uris: uris.slice(0, 100) }),
-  });
-  if (!clearRes.ok) {
-    if (clearRes.status === 429) {
-      const retryAfter = parseInt(clearRes.headers.get("Retry-After") || "60", 10);
-      logErr(`⏳ Spotify rate limit (429) — Retry-After: ${retryAfter}s`);
-      throw new SpotifyQuotaError(retryAfter);
-    }
-    const err = await clearRes.text();
-    throw new Error(`Failed to update playlist: ${clearRes.status} ${err}`);
-  }
+  // PUT replaces the entire playlist with up to 100 items at once.
+  // The client handles the /items endpoint and raises SpotifyQuotaError on 429.
+  await client.replacePlaylistItems(playlistId, uris.slice(0, 100));
 
   // If we have more than 100 items, POST the remaining in batches of 100
   for (let i = 100; i < uris.length; i += 100) {
-    const batch = uris.slice(i, i + 100);
-    const addRes = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ uris: batch }),
-    });
-    if (!addRes.ok) {
-      if (addRes.status === 429) {
-        const retryAfter = parseInt(addRes.headers.get("Retry-After") || "60", 10);
-        logErr(`⏳ Spotify rate limit (429) — Retry-After: ${retryAfter}s`);
-        throw new SpotifyQuotaError(retryAfter);
-      }
-      const err = await addRes.text();
-      throw new Error(`Failed to add batch: ${addRes.status} ${err}`);
-    }
+    await client.addPlaylistItems(playlistId, uris.slice(i, i + 100));
   }
 
   log(`\n✅ Playlist updated with ${items.length} items!`);
@@ -545,25 +423,15 @@ async function main() {
   const mode = PODCAST_ONLY ? "podcast-only" : "full";
   log(`\n🚗 Daily Drive — ${PODCAST_ONLY ? "Hourly podcast refresh" : "Full playlist rebuild"}...\n`);
 
-  // Step 1: Load configuration and authentication token
+  // Step 1: Load configuration
   const config = loadConfig();
-  const token = loadToken();
 
-  // Step 2: Create Spotify API client with your app credentials
-  const spotifyApi = new SpotifyWebApi({
-    clientId: config.spotify.client_id,
-    clientSecret: config.spotify.client_secret,
-    redirectUri: config.spotify.redirect_uri,
-  });
+  // Step 2: Create and initialise the Spotify client (OAuth or Cookie based on api_mode)
+  const creds = config.spotify;
+  const client = createSpotifyClient(config.api_mode || "oauth", creds);
+  await client.initialize();
 
-  // Set the tokens so the API client can make authenticated requests
-  spotifyApi.setAccessToken(token.access_token);
-  spotifyApi.setRefreshToken(token.refresh_token);
-
-  // Step 3: Refresh the access token if it's about to expire
-  await refreshTokenIfNeeded(spotifyApi, token);
-
-  // Step 4: Make sure the user has set a real playlist ID
+  // Step 3: Make sure the user has set a real playlist ID
   if (!config.playlist_id || config.playlist_id === "your-playlist-id-here") {
     const msg = "Please set your playlist_id in config.yaml";
     logErr("❌ " + msg);
@@ -571,8 +439,8 @@ async function main() {
     throw new Error(msg);
   }
 
-  // Step 5: Fetch the latest podcast episodes
-  const episodes = await fetchPodcastEpisodes(spotifyApi, config.podcasts || []);
+  // Step 4: Fetch the latest podcast episodes
+  const episodes = await fetchPodcastEpisodes(client, config.podcasts || []);
 
   // Step 6: Check if episodes have changed since last run
   // This prevents unnecessary playlist updates that would reset your listening position
@@ -602,12 +470,12 @@ async function main() {
       // No saved music — fall back to a full music fetch
       // This happens on the very first run, or if state.json was deleted
       log("⚠️  No saved music tracks found — falling back to full music fetch");
-      tracks = await fetchAllMusicTracks(spotifyApi, config);
+      tracks = await fetchAllMusicTracks(client, config);
     }
   } else {
     // --- Full refresh mode (daily) ---
     // Fetch fresh music from all sources (top tracks, playlists, genre discovery)
-    tracks = await fetchAllMusicTracks(spotifyApi, config);
+    tracks = await fetchAllMusicTracks(client, config);
   }
 
   if (episodes.length === 0 && tracks.length === 0) {
@@ -640,7 +508,7 @@ async function main() {
   const mixed = [...pinnedFirst, ...mixContent(mixableEpisodes, tracks, config.mix_pattern)];
 
   // Step 10: Push the final mixed playlist to Spotify
-  await updatePlaylist(spotifyApi, config.playlist_id, mixed);
+  await updatePlaylist(client, config.playlist_id, mixed);
 
   // Step 11: Save state so the next run can detect if episodes have changed
   if (!DRY_RUN) {
@@ -677,7 +545,7 @@ async function main() {
  * Used by full refresh mode, and as a fallback for podcast-only mode
  * when no saved tracks exist yet.
  */
-async function fetchAllMusicTracks(spotifyApi, config) {
+async function fetchAllMusicTracks(client, config) {
   const musicConfig = config.music || {};
   const totalSongs = musicConfig.total_songs || 15;
   const hasGenres = musicConfig.genres && musicConfig.genres.length > 0;
@@ -690,11 +558,11 @@ async function fetchAllMusicTracks(spotifyApi, config) {
 
   // Fetch familiar tracks (your top tracks + any source playlists)
   const familiarConfig = { ...musicConfig, total_songs: familiarCount };
-  let tracks = await fetchMusicTracks(spotifyApi, familiarConfig);
+  let tracks = await fetchMusicTracks(client, familiarConfig);
 
   // Fetch discovery tracks (genre-based search for new music)
   if (hasGenres && discoveryCount > 0) {
-    const genreTracks = await fetchGenreTracks(spotifyApi, musicConfig.genres, discoveryCount);
+    const genreTracks = await fetchGenreTracks(client, musicConfig.genres, discoveryCount);
 
     // Remove any genre tracks that duplicate songs already in the familiar set
     const familiarUris = new Set(tracks.map((t) => t.uri));

@@ -39,10 +39,14 @@
 </div>
 <% } %>
 
+<%
+  const isCookieMode = (config.api_mode === 'cookie');
+%>
+
 <!-- ===== Step indicator ===== -->
 <div class="steps-indicator">
   <div class="step-pill <%= step >= 1 ? (step > 1 ? 'done' : 'active') : '' %>">1</div>
-  <div class="step-pill <%= step >= 2 ? (step > 2 ? 'done' : 'active') : '' %>">2</div>
+  <div class="step-pill <%= isCookieMode ? 'skipped' : (step >= 2 ? (step > 2 ? 'done' : 'active') : '') %>">2</div>
   <div class="step-pill <%= step >= 3 ? (step > 3 ? 'done' : 'active') : '' %>">3</div>
 </div>
 
@@ -52,59 +56,117 @@
 
     <!-- Step 1 -->
     <div class="step-panel <%= step === 1 ? 'active' : '' %>">
-      <h2 data-i18n="setup_step1_title">Step 1: Create Spotify Developer App</h2>
-      <p style="color:var(--text-muted);font-size:.9rem;margin-bottom:.75rem" data-i18n="setup_step1_desc">...</p>
+      <h2>Step 1: Spotify Connection</h2>
 
-      <ul class="hint-list">
-        <li>
-          <span data-i18n="setup_step1_hint1">Go to</span>
-          <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
-          <span data-i18n="setup_step1_hint2">and sign in.</span>
-        </li>
-        <li data-i18n="setup_step1_hint3">Click <strong>"Create App"</strong>.</li>
-        <li>
-          <span data-i18n="setup_step1_hint4">Enter exactly this value as <strong>Redirect URI</strong>:</span>
-          <% if (isLanHttp) { %>
-            <div style="margin: 0.5rem 0; padding: 0.75rem; background: rgba(241, 194, 27, 0.1); border-left: 4px solid #f1c21b; border-radius: 4px; font-size: 0.85rem;">
-              <strong style="color: #f1c21b; display: block; margin-bottom: 0.25rem;" data-i18n="setup_nas_warning_title">⚠️ NAS / LAN HTTP Setup Detected</strong>
-              <span style="color: var(--text-muted);" data-i18n="setup_nas_warning_desc">Spotify requires HTTPS for LAN IP redirect URIs. Since you are accessing via HTTP IP, you must use the loopback address in Spotify.</span>
-            </div>
-            <div class="redirect-uri-box" id="redirect-uri-display"><%= loopbackRedirectUri %></div>
-            <p class="field-hint" data-i18n="setup_step1_hint_nas_loopback" style="margin-top:.4rem">
-              Use this loopback address in your Spotify Developer Dashboard instead of your NAS IP.
-            </p>
-          <% } else { %>
-            <div class="redirect-uri-box" id="redirect-uri-display"><%= redirectUri %></div>
-            <p class="field-hint" data-i18n="setup_step1_hint4b" style="margin-top:.4rem">
-              ⚠️ Spotify only accepts <code>127.0.0.1</code> — <strong>not</strong> <code>localhost</code>.
-            </p>
-          <% } %>
-        </li>
-        <li data-i18n="setup_step1_hint5">Check both <strong>Web API</strong> and <strong>Web Playback SDK</strong>.</li>
-        <li data-i18n="setup_step1_hint6">Open <strong>Settings → User Management</strong> and add your Spotify email.</li>
-      </ul>
+      <form action="/setup/credentials" method="POST" id="step1-form">
 
-      <form action="/setup/credentials" method="POST">
-        <div class="form-group">
-          <label for="client_id" data-i18n="setup_step1_client_id">Client ID</label>
-          <input type="text" id="client_id" name="client_id" value="<%= credentials.client_id || '' %>" required placeholder="Paste your Spotify Client ID">
-        </div>
-        <div class="form-group">
-          <label for="client_secret" data-i18n="setup_step1_client_secret">Client Secret</label>
-          <input type="password" id="client_secret" name="client_secret" value="<%= credentials.client_id ? '••••••••' : '' %>" autocomplete="new-password" placeholder="Paste your Spotify Client Secret">
-          <% if (credentials.client_id) { %><p class="field-hint">Leave blank to keep existing value.</p><% } %>
-        </div>
-        <div class="form-group">
-          <label data-i18n="setup_step1_redirect">Redirect URI</label>
-          <div class="copy-block">
-            <input type="text" value="<%= isLanHttp ? loopbackRedirectUri : redirectUri %>" readonly id="redir-copy">
-            <button type="button" class="btn-copy" onclick="copyRedirect()">Copy</button>
+        <!-- API mode selector -->
+        <div class="form-group" style="margin-bottom:1.25rem">
+          <label style="margin-bottom:0.5rem;display:block" data-i18n="setup_backend_label">Backend</label>
+          <div class="mode-selector">
+            <label class="mode-option">
+              <input type="radio" name="api_mode" value="oauth" id="mode-oauth"
+                <%= isCookieMode ? '' : 'checked' %> onchange="onModeChange()">
+              <div class="mode-card">
+                <strong data-i18n="setup_mode_oauth_title">OAuth (recommended)</strong>
+                <p data-i18n="setup_mode_oauth_desc">Official Spotify API. Requires a free Developer App.</p>
+              </div>
+            </label>
+            <label class="mode-option">
+              <input type="radio" name="api_mode" value="cookie" id="mode-cookie"
+                <%= isCookieMode ? 'checked' : '' %> onchange="onModeChange()">
+              <div class="mode-card">
+                <strong data-i18n="setup_mode_cookie_title">Unofficial Spotify Web API</strong>
+                <p data-i18n="setup_mode_cookie_desc">No Developer Account needed. Only the sp_dc cookie from your browser.</p>
+              </div>
+            </label>
           </div>
-          <p class="field-hint" data-i18n="setup_step1_redirect_hint">
-            Copy this value exactly into your Spotify Dashboard → Redirect URIs.
-            Use <strong>127.0.0.1</strong>, not <code>localhost</code> — Spotify blocks <code>localhost</code> since Nov 2025.
-          </p>
         </div>
+
+        <!-- OAuth fields -->
+        <div id="oauth-fields" style="display:<%= isCookieMode ? 'none' : 'block' %>">
+          <ul class="hint-list" style="margin-bottom:.75rem">
+            <li>
+              <span data-i18n="setup_step1_hint1">Go to</span>
+              <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a>
+              <span data-i18n="setup_step1_hint2">and sign in.</span>
+            </li>
+            <li data-i18n="setup_step1_hint3">Click <strong>"Create App"</strong>.</li>
+            <li>
+              <span data-i18n="setup_step1_hint4">Enter exactly this value as <strong>Redirect URI</strong>:</span>
+              <% if (isLanHttp) { %>
+                <div style="margin: 0.5rem 0; padding: 0.75rem; background: rgba(241, 194, 27, 0.1); border-left: 4px solid #f1c21b; border-radius: 4px; font-size: 0.85rem;">
+                  <strong style="color: #f1c21b; display: block; margin-bottom: 0.25rem;" data-i18n="setup_nas_warning_title">⚠️ NAS / LAN HTTP Setup Detected</strong>
+                  <span style="color: var(--text-muted);" data-i18n="setup_nas_warning_desc">Spotify requires HTTPS for LAN IP redirect URIs. Since you are accessing via HTTP IP, you must use the loopback address in Spotify.</span>
+                </div>
+                <div class="redirect-uri-box" id="redirect-uri-display"><%= loopbackRedirectUri %></div>
+                <p class="field-hint" data-i18n="setup_step1_hint_nas_loopback" style="margin-top:.4rem">
+                  Use this loopback address in your Spotify Developer Dashboard instead of your NAS IP.
+                </p>
+              <% } else { %>
+                <div class="redirect-uri-box" id="redirect-uri-display"><%= redirectUri %></div>
+                <p class="field-hint" data-i18n="setup_step1_hint4b" style="margin-top:.4rem">
+                  ⚠️ Spotify only accepts <code>127.0.0.1</code> — <strong>not</strong> <code>localhost</code>.
+                </p>
+              <% } %>
+            </li>
+            <li data-i18n="setup_step1_hint5">Check both <strong>Web API</strong> and <strong>Web Playback SDK</strong>.</li>
+            <li data-i18n="setup_step1_hint6">Open <strong>Settings → User Management</strong> and add your Spotify email.</li>
+          </ul>
+
+          <div class="form-group">
+            <label for="client_id" data-i18n="setup_step1_client_id">Client ID</label>
+            <input type="text" id="client_id" name="client_id" value="<%= credentials.client_id || '' %>" placeholder="Paste your Spotify Client ID">
+          </div>
+          <div class="form-group">
+            <label for="client_secret" data-i18n="setup_step1_client_secret">Client Secret</label>
+            <input type="password" id="client_secret" name="client_secret" value="<%= credentials.client_id ? '••••••••' : '' %>" autocomplete="new-password" placeholder="Paste your Spotify Client Secret">
+            <% if (credentials.client_id) { %><p class="field-hint">Leave blank to keep existing value.</p><% } %>
+          </div>
+          <div class="form-group">
+            <label data-i18n="setup_step1_redirect">Redirect URI</label>
+            <div class="copy-block">
+              <input type="text" value="<%= isLanHttp ? loopbackRedirectUri : redirectUri %>" readonly id="redir-copy">
+              <button type="button" class="btn-copy" onclick="copyRedirect()">Copy</button>
+            </div>
+            <p class="field-hint" data-i18n="setup_step1_redirect_hint">
+              Copy this value exactly into your Spotify Dashboard → Redirect URIs.
+              Use <strong>127.0.0.1</strong>, not <code>localhost</code> — Spotify blocks <code>localhost</code> since Nov 2025.
+            </p>
+          </div>
+        </div><!-- /oauth-fields -->
+
+        <!-- Cookie fields -->
+        <div id="cookie-fields" style="display:<%= isCookieMode ? 'block' : 'none' %>">
+          <div style="background:rgba(15,98,254,.06);border:1px solid rgba(15,98,254,.25);border-radius:6px;padding:.9rem 1rem;margin-bottom:1rem;font-size:.88rem;line-height:1.6">
+            <strong style="display:block;margin-bottom:.4rem" data-i18n="setup_cookie_howto_title">How to get your sp_dc cookie:</strong>
+            <ol style="margin:0;padding-left:1.2rem">
+              <li data-i18n="setup_cookie_step1">Open <a href="https://open.spotify.com" target="_blank" rel="noopener">open.spotify.com</a> in your browser and sign in.</li>
+              <li data-i18n="setup_cookie_step2">Open DevTools: <kbd>F12</kbd> → <strong>Application</strong> tab (Chrome) or <strong>Storage</strong> (Firefox).</li>
+              <li data-i18n="setup_cookie_step3">Navigate to <strong>Cookies → https://open.spotify.com</strong></li>
+              <li data-i18n="setup_cookie_step4">Copy the value of the cookie named <code>sp_dc</code>.</li>
+              <li data-i18n="setup_cookie_step5">Paste it below.</li>
+            </ol>
+          </div>
+          <div class="form-group">
+            <label for="sp_dc" data-i18n="setup_cookie_field_label">sp_dc Cookie</label>
+            <input type="password" id="sp_dc" name="sp_dc" autocomplete="off"
+              value="<%= config.spotify && config.spotify.sp_dc ? '••••••••' : '' %>"
+              placeholder="AQB3...">
+            <% if (config.spotify && config.spotify.sp_dc) { %>
+            <p class="field-hint" data-i18n="setup_cookie_keep_hint">Leave blank to keep existing cookie.</p>
+            <% } %>
+          </div>
+        </div><!-- /cookie-fields -->
+
+        <!-- Cookie-Mode Diagnose-Panel -->
+        <div id="cookie-test-panel" style="display:<%= isCookieMode ? 'block' : 'none' %>;margin-top:1rem">
+          <button type="button" id="cookie-test-btn" class="btn" style="background:rgba(15,98,254,.12);border:1px solid #0f62fe;color:#0f62fe;font-size:.85rem;padding:.4rem 1rem" onclick="runCookieTest()">
+            🔍 Verbindung testen
+          </button>
+          <div id="cookie-test-output" style="display:none;margin-top:.75rem;background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:.75rem 1rem;font-family:monospace;font-size:.8rem;line-height:1.6;white-space:pre-wrap;max-height:260px;overflow-y:auto"></div>
+        </div>
+
         <div class="btn-row">
           <button type="submit" class="btn btn-primary" data-i18n="setup_step1_next">Next</button>
         </div>
@@ -180,6 +242,7 @@
       <h2 data-i18n="setup_step3_title">Step 3: Playlist</h2>
 
       <form action="/setup/playlist" method="POST">
+        <input type="hidden" name="api_mode" value="<%= config.api_mode || 'oauth' %>">
         <!-- Hidden field carries the ID to the server -->
         <input type="hidden" id="playlist_url" name="playlist_url" value="<%= config.playlist_id || '' %>">
 
@@ -204,7 +267,7 @@
         </div>
 
         <div class="btn-row" style="margin-top:1rem">
-          <a href="/setup?step=2" class="btn btn-ghost" data-i18n="setup_step3_back">Back</a>
+          <a href="/setup?step=<%= isCookieMode ? 1 : 2 %>" class="btn btn-ghost" data-i18n="setup_step3_back">Back</a>
           <button type="submit" class="btn btn-primary" data-i18n="setup_step3_next">Next →</button>
         </div>
       </form>
@@ -234,6 +297,55 @@
 <% } %>
 
 <script>
+function onModeChange() {
+  const isCookie = document.getElementById('mode-cookie').checked;
+  document.getElementById('oauth-fields').style.display = isCookie ? 'none' : 'block';
+  document.getElementById('cookie-fields').style.display = isCookie ? 'block' : 'none';
+  document.getElementById('cookie-test-panel').style.display = isCookie ? 'block' : 'none';
+  // Reset test output when switching modes
+  document.getElementById('cookie-test-output').style.display = 'none';
+  document.getElementById('cookie-test-output').textContent = '';
+}
+
+async function runCookieTest() {
+  const btn = document.getElementById('cookie-test-btn');
+  const out = document.getElementById('cookie-test-output');
+  btn.disabled = true;
+  btn.textContent = '⏳ Teste …';
+  out.style.display = 'block';
+  out.textContent = 'Starte Diagnose …\n';
+
+  // Read sp_dc from the input field — skip placeholder value
+  const fieldVal = (document.getElementById('sp_dc') || {}).value || '';
+  const spDc = (fieldVal && !fieldVal.startsWith('•')) ? fieldVal.trim() : '';
+
+  try {
+    const resp = await fetch('/api/test-cookie-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sp_dc: spDc }),
+    });
+    const data = await resp.json();
+    out.textContent = data.steps.join('\n');
+    if (data.ok) {
+      btn.style.background = 'rgba(36,161,72,.15)';
+      btn.style.borderColor = '#24a148';
+      btn.style.color = '#24a148';
+      btn.textContent = '✅ Verbindung erfolgreich';
+    } else {
+      btn.style.background = 'rgba(218,30,40,.12)';
+      btn.style.borderColor = '#da1e28';
+      btn.style.color = '#da1e28';
+      btn.textContent = '❌ Verbindung fehlgeschlagen';
+    }
+  } catch (e) {
+    out.textContent += '\n❌ Netzwerkfehler: ' + e.message;
+    btn.textContent = '❌ Fehler';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function setSetupPlaylist(id, name, image) {
   document.getElementById('playlist_url').value = id;
   document.getElementById('setup-playlist-name').textContent = name;
