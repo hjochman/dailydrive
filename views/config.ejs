@@ -159,6 +159,14 @@
             <label data-i18n="config_podcast_episodes">Episodes</label>
             <input type="number" name="podcast_episodes[]" value="<%= p.episodes || 1 %>" min="1" max="10">
           </div>
+          <div class="form-group" style="margin:0;min-width:130px">
+            <label data-i18n="config_podcast_mode">Mode</label>
+            <select name="podcast_mode[]">
+              <option value="newest"          <%= (p.mode || 'newest') === 'newest'          ? 'selected' : '' %> data-i18n="config_podcast_mode_newest">Newest</option>
+              <option value="newest_unplayed" <%= (p.mode || 'newest') === 'newest_unplayed' ? 'selected' : '' %> data-i18n="config_podcast_mode_newest_unplayed">Newest unplayed</option>
+              <option value="oldest_unplayed" <%= (p.mode || 'newest') === 'oldest_unplayed' ? 'selected' : '' %> data-i18n="config_podcast_mode_oldest_unplayed">Oldest unplayed</option>
+            </select>
+          </div>
           <button type="button" class="btn-remove" onclick="removeEntry(this.closest('.item-entry'))">✕</button>
         </div>
         <% }); %>

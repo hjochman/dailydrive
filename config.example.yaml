@@ -71,6 +71,10 @@ podcasts:
   - name: "Freakonomics Radio"
     id: "6z4NLXyHPga1UmSJsPK7G1"
     episodes: 1
+    mode: newest_unplayed       # newest (default) | newest_unplayed | oldest_unplayed
+                                # newest_unplayed / oldest_unplayed: Cookie mode only (api_mode: cookie)
+                                # In OAuth mode these fall back to "newest" automatically (play state unavailable)
+    # scan_limit: 50            # How many episodes to scan when using newest_unplayed / oldest_unplayed (default: 50)
 
   - name: "The Daily"
     id: "3IM0lmZxpFAY7CwMuv9H4g"

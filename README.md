@@ -10,7 +10,7 @@
 
 Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/Is-Daily-Drive-gone/td-p/7377710) on March 17, 2026. This project brings it back. It runs on any Linux machine **or inside a container on a Synology NAS**, and automatically refreshes a Spotify playlist with your podcasts interleaved with music.
 
-> **New in v2.1:** Choose your Spotify backend — **OAuth** (full features, requires a free Spotify Developer App) or **Cookie mode** (just your Spotify username and password, no Developer App needed). The Setup Wizard and Config page let you switch at any time.
+> **New in v2.1:** Choose your Spotify backend — **OAuth** (full features, requires a free Spotify Developer App) or **Cookie mode** (just your Spotify username and password, no Developer App needed). The Setup Wizard and Config page let you switch at any time. Per-podcast episode modes: `newest`, `newest_unplayed`, and `oldest_unplayed` — skip episodes you've already listened to.
 
 > **v2.0:** A full Web UI (built with IBM Bob 🤖) guides you through setup, lets you edit all configuration, and runs the playlist on a configurable schedule — no CLI required. Deploy with one `docker compose up`.
 
@@ -307,6 +307,29 @@ podcasts:
     episodes: 1
     position: first    # Always plays first, before the pattern
 ```
+
+### Skip episodes you've already heard
+
+Set a `mode` per podcast to control which episodes are selected:
+
+| Mode | Behaviour |
+|------|-----------|
+| `newest` (default) | Always picks the N most recent episodes, regardless of play state |
+| `newest_unplayed` | Scans up to `scan_limit` (default 50) episodes and picks the N most recent ones you haven't finished yet |
+| `oldest_unplayed` | Same scan, but picks the N *oldest* unplayed episodes — useful for catching up on a backlog in order |
+
+```yaml
+podcasts:
+  - name: "kurz informiert by heise online"
+    id: "2etf1jog8leNHbnhIArM9Z"
+    episodes: 3
+    mode: newest_unplayed   # skip episodes already listened to
+    scan_limit: 50          # how far back to scan (optional, default 50)
+```
+
+Episodes with play state `COMPLETED` are skipped. Episodes `IN_PROGRESS` (partially listened) are kept — they haven't been finished. When no unplayed episodes are found within the scan window, the mode falls back to `newest` automatically.
+
+> **Note:** `newest_unplayed` / `oldest_unplayed` require Cookie mode (`api_mode: cookie`). OAuth Dev Mode does not return resume/play-state data — the mode is silently downgraded to `newest` with a log warning.
 
 ---
 

@@ -26,6 +26,8 @@ class OAuthSpotifyClient extends SpotifyClientBase {
       clientSecret: client_secret,
       redirectUri:  redirect_uri,
     });
+    /** Spotify Dev Mode does not return resume_point via the REST API. */
+    this.resumePointSupported = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -120,13 +122,22 @@ class OAuthSpotifyClient extends SpotifyClientBase {
   async getShowEpisodes(showId, options = {}) {
     await this._ensureFreshToken();
     const data = await this._spotifyApi.getShowEpisodes(showId, {
-      limit:  options.limit  || 1,
+      limit:  options.limit  || 50,
+      offset: options.offset || 0,
       market: options.market || "US",
     });
-    return data.body.items.map((ep) => ({
-      uri:  ep.uri,
-      name: ep.name,
-      type: "episode",
+    const items = data.body.items;
+    if (!items || items.length === 0) return [];
+
+    // resume_point (fully_played, resume_position_ms) is returned directly by
+    // /v1/shows/{id}/episodes when a market parameter is provided — no extra call needed.
+    return items.map((ep) => ({
+      uri:                ep.uri,
+      name:               ep.name,
+      type:               "episode",
+      fully_played:       ep.resume_point?.fully_played       ?? null,
+      resume_position_ms: ep.resume_point?.resume_position_ms ?? null,
+      duration_ms:        ep.duration_ms                       ?? null,
     }));
   }
 

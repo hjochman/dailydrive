@@ -217,6 +217,8 @@ class CookieSpotifyClient extends SpotifyClientBase {
     } else {
       this._cookies = cookies || "";
     }
+    /** Pathfinder returns resumePoint data on episode objects. */
+    this.resumePointSupported = true;
 
     /** @type {string|null} */
     this._accessToken = null;
@@ -766,12 +768,13 @@ class CookieSpotifyClient extends SpotifyClientBase {
    * @returns {Promise<Array<{uri: string, name: string, show?: string, type: "episode", position?: string}>>}
    */
   async getShowEpisodes(showId, options = {}) {
-    const limit = Math.min(Math.max(1, options.limit || 1), 50);
+    const limit = Math.min(Math.max(1, options.limit || 50), 50);
+    const offset = options.offset || 0;
     const uri = showId.startsWith("spotify:show:") ? showId : `spotify:show:${showId}`;
 
     const data = await this.pathfinderQuery("queryPodcastEpisodes", {
       uri,
-      offset: 0,
+      offset,
       limit,
     });
 
@@ -780,16 +783,51 @@ class CookieSpotifyClient extends SpotifyClientBase {
       data?.podcastUnion?.episodes?.items ||
       [];
 
+    // Log raw episode structure once (first item) so we can verify what
+    // Pathfinder returns for resume/playback fields.
+    if (items.length > 0) {
+      const sample = items[0].entity?.data || items[0].data || items[0];
+      log(`[cookie][debug] queryPodcastEpisodes sample fields: ${JSON.stringify(Object.keys(sample))}`);
+      if (sample.resumePoint !== undefined || sample.playbackState !== undefined || sample.playedState !== undefined || sample.duration !== undefined) {
+        log(`[cookie][debug] resume/duration data: ${JSON.stringify({ resumePoint: sample.resumePoint, playbackState: sample.playbackState, playedState: sample.playedState, duration: sample.duration, durationMs: sample.durationMs })}`);
+      } else {
+        log(`[cookie][debug] No resumePoint/playbackState/playedState/duration fields found in episode data`);
+      }
+    }
+
     return items
       .map((item) => {
         const ep = item.entity?.data || item.data || item;
         const epUri = ep.uri || "";
         const name = ep.name || "";
         if (!epUri) return null;
+
+        // Extract resume/playback fields — Pathfinder camelCase conventions.
+        // playedState.state: "COMPLETED" | "IN_PROGRESS" | "NOT_STARTED"
+        // playedState.playPositionMilliseconds: resume position in ms
+        const playedStateVal = ep.playedState?.state ?? null;
+        const fullyPlayed =
+          ep.resumePoint?.fullyPlayed ??
+          ep.playbackState?.fullyPlayed ??
+          (playedStateVal !== null ? playedStateVal === "COMPLETED" : null);
+        const resumePositionMs =
+          ep.resumePoint?.resumePositionAsMilliseconds ??
+          ep.resumePoint?.position?.milliseconds ??
+          ep.playbackState?.resumePositionMs ??
+          ep.playedState?.playPositionMilliseconds ??
+          null;
+        const durationMs =
+          ep.duration?.totalMilliseconds ??
+          ep.durationMs ??
+          null;
+
         return {
-          uri: epUri,
+          uri:                epUri,
           name,
-          type: "episode",
+          type:               "episode",
+          fully_played:       fullyPlayed,
+          resume_position_ms: resumePositionMs,
+          duration_ms:        durationMs,
         };
       })
       .filter(Boolean);

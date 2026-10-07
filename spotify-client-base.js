@@ -49,6 +49,16 @@ class SpotifyQuotaError extends Error {
  * @interface
  */
 class SpotifyClientBase {
+  constructor() {
+    /**
+     * Whether this client implementation returns resume_point data
+     * (fully_played, resume_position_ms) on episode objects.
+     * false for OAuthSpotifyClient (Dev Mode restriction), true for CookieSpotifyClient.
+     * @type {boolean}
+     */
+    this.resumePointSupported = false;
+  }
+
   /**
    * Initialises the client: loads stored tokens, establishes a session,
    * or performs any setup required before making API calls.
@@ -67,8 +77,9 @@ class SpotifyClientBase {
    * @abstract
    * @param {string} showId - Spotify Show ID (e.g., "4rOoJ6Egrf8K2IrywzwOMk")
    * @param {object} [options] - Query options
-   * @param {number} [options.limit=1] - Maximum number of episodes to return (max 50)
-   * @param {string} [options.market="US"] - ISO 3166-1 alpha-2 country code for availability
+   * @param {number} [options.limit=50] - Maximum number of episodes to return (max 50)
+   * @param {number} [options.offset=0] - Offset for pagination
+   * @param {string} [options.market="US"] - ISO 3166-1 alpha-2 country code for availability; required for resume_point to be returned
    * @returns {Promise<Array<{uri: string, name: string, show?: string, type: "episode", position?: string}>>}
    *   Array of normalised episode objects:
    *   - `uri`: Spotify URI (e.g., "spotify:episode:abc123")
@@ -76,6 +87,9 @@ class SpotifyClientBase {
    *   - `show`: Display name of the podcast (optional, added by caller)
    *   - `type`: Always "episode"
    *   - `position`: Optional "first" to pin at playlist start
+   *   - `fully_played`: Whether the episode has been fully played (`true`/`false`), or `null` if unavailable
+   *   - `resume_position_ms`: Playback position in milliseconds at last listen, or `null` if unavailable
+   *   - `duration_ms`: Total episode duration in milliseconds, or `null` if unavailable
    * @throws {Error} If the API request fails
    */
   async getShowEpisodes(showId, options) {

@@ -166,7 +166,13 @@ ugc-image-upload
 
 ### Playlist Building Flow (index.js)
 1. Reads `api_mode` from config, calls `createSpotifyClient()`, calls `client.initialize()`
-2. Fetches latest episodes for each podcast via `client.getShowEpisodes()`
+2. Fetches latest episodes for each podcast via `client.getShowEpisodes()` — returns `uri`, `name`, `fully_played`, `resume_position_ms`, `duration_ms`
+   - Mode `newest` (default): fetches the N most recent episodes, no play-state check
+   - Mode `newest_unplayed`: scans up to `scan_limit` (default 50) episodes, picks the N most recent ones not yet fully played; stops early once enough are found
+   - Mode `oldest_unplayed`: same scan, but picks the N oldest unplayed episodes (useful for catching up in order)
+   - Falls back to newest episodes if no unplayed episodes are found
+   - **Cookie mode play-state source:** `ep.playedState.state` — values are `"NOT_STARTED"`, `"IN_PROGRESS"` (both → `fully_played: false`), `"COMPLETED"` (→ `fully_played: true`). Resume position comes from `ep.playedState.playPositionMilliseconds` (flat field).
+   - **OAuth Dev Mode:** does not return resume/play-state data → `newest_unplayed`/`oldest_unplayed` downgrade to `newest` with a log warning
 3. Checks state cache — skips update if episodes haven't changed
 4. Fetches music from top tracks (`client.getMyTopTracks()`), source playlists (`client.getPlaylistItems()`), and/or genre search (`client.searchTracks()`)
 5. Separates pinned episodes (`position: first`) from mixable episodes
@@ -246,6 +252,9 @@ podcasts:                 # Array of podcast sources
     id: string            # Spotify show ID
     episodes: number      # How many recent episodes (default: 1)
     position: string      # Optional: "first" to pin at start of playlist
+    mode: string          # Optional: "newest" (default) | "newest_unplayed" | "oldest_unplayed"
+                          # newest_unplayed/oldest_unplayed: Cookie mode only — OAuth silently falls back to "newest"
+    scan_limit: number    # Optional: max episodes to scan for unplayed modes (default: 50)
 
 music:
   top_tracks:             # Pull from user's most-played songs
@@ -309,6 +318,7 @@ schedule:
 - Podcast episode IDs change with each new episode — always fetch fresh
 - State caching prevents unnecessary updates when episodes haven't changed — delete `state.json` to force
 - NPR News Now and similar hourly news podcasts publish episodes that **expire on Spotify within hours**. If the playlist isn't refreshed frequently enough, these episodes show as unavailable. Consider running more often than twice daily if using such podcasts
+- Cookie mode: Pathfinder `queryPodcastEpisodes` returns play state in `ep.playedState` — **not** `ep.resumePoint` or `ep.playbackState` (those are absent). Shape: `{ state: "NOT_STARTED"|"IN_PROGRESS"|"COMPLETED", playPositionMilliseconds: number }`. Only `"COMPLETED"` sets `fully_played: true`; `"IN_PROGRESS"` is treated as unplayed (not finished).
 - Cookie mode: Pathfinder query hashes are extracted from Spotify's JS bundles and cached in `.cookie-session.json`. If Spotify deploys a new bundle, the hashes are re-extracted automatically on the next initialize
 - Cookie mode: `setPlaylistCoverImage()` uses a **three-step flow** — (1) upload raw JPEG → `image-upload.spotify.com/v4/playlist` → `uploadToken`; (2) `POST spclient/playlist/v2/playlist/{id}/register-image` with `{ uploadToken }` + `Accept: application/json` → `{ "picture": "<base64>" }` (triggers CDN pipeline); (3) `POST spclient/playlist/v2/playlist/{id}/changes` with `UPDATE_LIST_ATTRIBUTES { values: { picture: "<base64 from step 2>" }, noValue: [] }` — `picture` must be the **raw base64 string**, NOT decoded hex. All three steps are required; skipping step 3 means the image is processed but never shown in clients.
 - `test-cover-upload.js` — standalone diagnostic script for debugging cookie-mode cover image upload; run with `node test-cover-upload.js <playlistId>`

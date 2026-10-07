@@ -960,18 +960,22 @@ app.post("/config", (req, res) => {
   };
 
   // Podcasts
-  const podNames     = [].concat(b.podcast_name     || b["podcast_name[]"]     || []);
-  const podIds       = [].concat(b.podcast_id       || b["podcast_id[]"]       || []);
-  const podEpisodes  = [].concat(b.podcast_episodes || b["podcast_episodes[]"] || []);
-  const pinnedId     = (b.podcast_pin_id || "").trim();
+  const podNames    = [].concat(b.podcast_name     || b["podcast_name[]"]     || []);
+  const podIds      = [].concat(b.podcast_id       || b["podcast_id[]"]       || []);
+  const podEpisodes = [].concat(b.podcast_episodes || b["podcast_episodes[]"] || []);
+  const podModes    = [].concat(b.podcast_mode     || b["podcast_mode[]"]     || []);
+  const pinnedId    = (b.podcast_pin_id || "").trim();
+  const validModes  = new Set(["newest", "newest_unplayed", "oldest_unplayed"]);
 
   podIds.forEach((id, i) => {
     if (!id.trim()) return;
     const trimmedId = id.trim();
+    const mode = podModes[i] && validModes.has(podModes[i]) ? podModes[i] : "newest";
     const pod = {
       id:       trimmedId,
       name:     (podNames[i] || "").trim() || trimmedId,
       episodes: parseInt(podEpisodes[i] || "1", 10),
+      mode,
     };
     if (pinnedId && pinnedId !== "-1" && trimmedId === pinnedId) {
       pod.position = "first";

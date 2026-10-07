@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.1.1] — Cookie Mode: Fix played-state detection
+
+### Fixed
+- **`newest_unplayed` / `oldest_unplayed` modes never skipped played episodes in Cookie mode** — `CookieSpotifyClient.getShowEpisodes()` extracted play state from `ep.resumePoint` and `ep.playbackState`, but Spotify's Pathfinder `queryPodcastEpisodes` response uses a different field: `ep.playedState`. As a result `fully_played` was always `null`, and since `!null === true` every episode appeared unplayed, making skip filtering a no-op.
+- Corrected field name: `ep.playedState.state` is now read and mapped — `"COMPLETED"` → `fully_played: true`; `"IN_PROGRESS"` or `"NOT_STARTED"` → `fully_played: false`.
+- Corrected resume position field: `ep.playedState.playPositionMilliseconds` (flat, not nested) is now used for `resume_position_ms`.
+- Debug log now also dumps `playedState` alongside `resumePoint`/`playbackState`/`duration` for easier future diagnosis.
+
+### Notes
+- Confirmed Pathfinder `playedState` values via live API inspection: `"NOT_STARTED"`, `"IN_PROGRESS"`, `"COMPLETED"`.
+- `IN_PROGRESS` episodes (partially listened) are treated as **unplayed** — correct behaviour, they have not been finished.
+- `resumePoint` / `playbackState` extraction paths are retained as fallbacks for schema resilience.
+
+---
+
 ## [2.1.0] — Dual-Backend Spotify Client
 
 ### Added

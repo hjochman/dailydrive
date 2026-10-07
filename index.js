@@ -103,41 +103,114 @@ function shuffle(array) {
 // =============================================================================
 
 /**
- * Fetches the latest episodes for each podcast listed in your config.
- * Returns an array of episode objects with uri, name, show name, and position.
+ * Fetches podcast episodes based on the configured mode per podcast:
+ *   - "newest" (default): grabs the most recent episode(s)
+ *   - "newest_unplayed": scans recent episodes and picks the most recent
+ *     unplayed episode(s) — stops scanning as soon as enough are found
+ *   - "oldest_unplayed": scans recent episodes and picks the oldest
+ *     unplayed episode(s) — useful for catching up in order
+ *
+ * The unplayed modes rely on Spotify's resume_point.fully_played field,
+ * which is returned when a market parameter is set. They scan up to
+ * scan_limit episodes (default: 50) in batches of 50, then select from the
+ * newest or oldest end. Falls back to newest if no unplayed episodes found.
  *
  * Note: Some podcasts (like NPR News Now) publish hourly episodes that expire
  * quickly on Spotify. If you see "[unavailable]" in your playlist, run the
  * script again to fetch the latest episode.
  */
-async function fetchPodcastEpisodes(client, podcasts) {
+async function fetchPodcastEpisodes(client, podcasts, market = "US") {
   const episodes = [];
 
   for (const podcast of podcasts) {
-    // How many recent episodes to grab (default: 1, configurable per podcast)
     const count = podcast.episodes || 1;
-    log(`🎙️  Fetching ${count} episode(s) from: ${podcast.name}`);
+    const mode  = podcast.mode || "newest";
+    log(`🎙️  Fetching ${count} episode(s) from: ${podcast.name} (mode: ${mode})`);
 
     try {
-      // Ask Spotify for the most recent episodes of this show.
-      // Client returns normalised objects: { uri, name, type }
-      const items = await client.getShowEpisodes(podcast.id, {
-        limit: count,
-        market: "US", // Required for episode availability
-      });
+      // Unplayed modes require resume_point data which is not available in OAuth Dev Mode.
+      const effectiveMode =
+        (mode === "newest_unplayed" || mode === "oldest_unplayed") && !client.resumePointSupported
+          ? "newest"
+          : mode;
 
-      for (const episode of items) {
-        episodes.push({
-          uri:      episode.uri,
-          name:     episode.name,
-          show:     podcast.name,
-          type:     "episode",
-          position: podcast.position || null, // "first" = pinned to top of playlist
+      if (effectiveMode !== mode) {
+        log(`    ⚠️  Mode "${mode}" requires Cookie client (OAuth Dev Mode does not return resume_point) — using "newest" instead`);
+      }
+
+      if (effectiveMode === "newest_unplayed" || effectiveMode === "oldest_unplayed") {
+        const scanLimit = podcast.scan_limit || 50;
+        const batchSize = 50;
+        let offset = 0;
+        let scanned = 0;
+        const unplayed = [];
+        let newestItems = [];
+
+        while (scanned < scanLimit) {
+          const limit = Math.min(batchSize, scanLimit - scanned);
+          const items = await client.getShowEpisodes(podcast.id, {
+            limit,
+            offset,
+            market,
+          });
+
+          if (items.length === 0) break;
+          if (scanned === 0) newestItems = items;
+
+          for (const ep of items) {
+            const status = ep.fully_played ? "✅" : "⬜";
+            log(`    ${status} ${ep.name}`);
+            if (!ep.fully_played) unplayed.push(ep);
+          }
+
+          scanned += items.length;
+          offset  += items.length;
+
+          // Spotify returns newest-first — once newest_unplayed has enough, stop.
+          if (mode === "newest_unplayed" && unplayed.length >= count) break;
+          if (items.length < limit) break; // reached end of feed
+
+          log(`    📊 Scanned ${scanned}/${scanLimit}, ${unplayed.length} unplayed so far…`);
+        }
+
+        log(`    📊 Scan complete: ${scanned} scanned, ${unplayed.length} unplayed found`);
+
+        // Spotify returns newest-first; reverse for oldest_unplayed so slice(0,count) gets oldest.
+        if (effectiveMode === "oldest_unplayed") unplayed.reverse();
+
+        const selected = unplayed.length > 0 ? unplayed.slice(0, count) : newestItems.slice(0, count);
+        if (unplayed.length === 0) {
+          log(`    ℹ️  No unplayed episodes found — falling back to newest`);
+        }
+
+        for (const episode of selected) {
+          episodes.push({
+            uri:      episode.uri,
+            name:     episode.name,
+            show:     podcast.name,
+            type:     "episode",
+            position: podcast.position || null,
+          });
+          log(`    📌 Selected: ${episode.name}`);
+        }
+      } else {
+        // Default "newest" mode — original behaviour, no scanning overhead.
+        const items = await client.getShowEpisodes(podcast.id, {
+          limit:  count,
+          market,
         });
-        log(`    📌 ${episode.name}`);
+        for (const episode of items) {
+          episodes.push({
+            uri:      episode.uri,
+            name:     episode.name,
+            show:     podcast.name,
+            type:     "episode",
+            position: podcast.position || null,
+          });
+          log(`    📌 ${episode.name}`);
+        }
       }
     } catch (err) {
-      // Don't crash if one podcast fails — just warn and continue with the rest
       logErr(`    ⚠️  Failed to fetch ${podcast.name}: ${err.message}`);
     }
   }
@@ -439,8 +512,16 @@ async function main() {
     throw new Error(msg);
   }
 
-  // Step 4: Fetch the latest podcast episodes
-  const episodes = await fetchPodcastEpisodes(client, config.podcasts || []);
+  // Step 4: Resolve user's market (country code) — required for resume_point in episode responses.
+  // Falls back to "US" if unavailable.
+  let market = "US";
+  try {
+    const me = await client.getMe();
+    if (me?.country) market = me.country;
+  } catch (_) { /* non-fatal */ }
+
+  // Step 5: Fetch the latest podcast episodes
+  const episodes = await fetchPodcastEpisodes(client, config.podcasts || [], market);
 
   // Step 6: Check if episodes have changed since last run
   // This prevents unnecessary playlist updates that would reset your listening position
