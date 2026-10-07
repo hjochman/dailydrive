@@ -112,7 +112,9 @@ Manage podcasts (with top-pinning and round-robin alternation) and music sources
 <p align="center">
   <img src="img/screenshots/config-podcasts.png" alt="Podcast Configuration" width="750">
   <br><br>
-  <img src="img/screenshots/config-music.png" alt="Music and Schedule Configuration" width="750">
+  <img src="img/screenshots/config-music1.png" alt="Music and Schedule Configuration" width="750">
+  <br><br>
+  <img src="img/screenshots/config-music2.png" alt="Music and Schedule Configuration" width="750">
 </p>
 
 ### Volume Mount — Persistent Files
