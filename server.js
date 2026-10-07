@@ -1134,17 +1134,18 @@ app.get("/api/playlist-info/:id", async (req, res) => {
       return res.status(401).json({ error: "Not authenticated" });
     }
     const apiRes = await fetch(
-      `https://api.spotify.com/v1/playlists/${req.params.id}?fields=id,name,images,owner,tracks.total`,
+      `https://api.spotify.com/v1/playlists/${req.params.id}`,
       { headers: { Authorization: `Bearer ${token.access_token}` } }
     );
     if (!apiRes.ok) return res.status(apiRes.status).json({ error: "Spotify API error" });
     const data = await apiRes.json();
+    const tracksTotal = data.tracks?.total ?? data.items?.total ?? null;
     res.json({
       id:           data.id,
       name:         data.name,
       image:        data.images?.[0]?.url || null,
       owner:        data.owner?.display_name || null,
-      tracks_total: data.tracks?.total != null ? data.tracks.total : 0,
+      tracks_total: tracksTotal,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
