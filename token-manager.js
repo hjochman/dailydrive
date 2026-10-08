@@ -11,12 +11,21 @@ const yaml = require("js-yaml");
 const SpotifyWebApi = require("spotify-web-api-node");
 const { PATHS, resolveSpotifyCredentials } = require("./paths");
 
-let _logger = console.log;
-let _errorLogger = console.error;
+// Logger — defaults to console; overridden via setLogger() from server.js
+// Accepts either a logger object { error, warn, info, debug } or a plain function (legacy).
+let _log = {
+  error: (...a) => console.error(...a),
+  warn:  (...a) => console.warn(...a),
+  info:  (...a) => console.log(...a),
+  debug: (...a) => {},
+};
 
-function setLogger(fn, errFn) {
-  if (typeof fn === "function") _logger = fn;
-  if (typeof errFn === "function") _errorLogger = errFn;
+function setLogger(loggerOrFn, _ignored) {
+  if (typeof loggerOrFn === "function") {
+    _log = { error: loggerOrFn, warn: loggerOrFn, info: loggerOrFn, debug: () => {} };
+  } else if (loggerOrFn && typeof loggerOrFn === "object") {
+    _log = loggerOrFn;
+  }
 }
 
 function loadConfigFile() {
@@ -79,41 +88,48 @@ async function refreshTokenIfNeeded(thresholdMs = 10 * 60 * 1000) {
   const token = loadToken();
   if (!token) return null;
 
-  if (Date.now() > token.expires_at - thresholdMs) {
-    _logger("[token-manager] 🔄 Refreshing Spotify access token...");
+  const expiresInMs = token.expires_at - Date.now();
+  if (expiresInMs > thresholdMs) {
+    _log.debug(`[token-manager] Token valid for ${Math.round(expiresInMs / 60000)} more minutes — no refresh needed`);
+    return token;
+  }
 
-    const fileConfig = loadConfigFile();
-    const creds = resolveSpotifyCredentials(fileConfig.spotify || {});
-    if (!creds.client_id || !creds.client_secret) {
-      _errorLogger("[token-manager] ❌ Token refresh skipped: Spotify credentials not found in environment or config.yaml");
-      return token;
+  _log.info("[token-manager] 🔄 Refreshing Spotify access token...");
+
+  const fileConfig = loadConfigFile();
+  const creds = resolveSpotifyCredentials(fileConfig.spotify || {});
+  if (!creds.client_id || !creds.client_secret) {
+    _log.warn("[token-manager] Token refresh skipped: Spotify credentials not found in environment or config.yaml");
+    return token;
+  }
+
+  const spotifyApi = new SpotifyWebApi({
+    clientId:     creds.client_id,
+    clientSecret: creds.client_secret,
+    redirectUri:  creds.redirect_uri,
+  });
+  spotifyApi.setRefreshToken(token.refresh_token);
+
+  try {
+    const data = await spotifyApi.refreshAccessToken();
+    token.access_token = data.body.access_token;
+    token.expires_at   = Date.now() + data.body.expires_in * 1000;
+    if (data.body.refresh_token) {
+      _log.debug("[token-manager] Spotify issued a new refresh token — persisting");
+      token.refresh_token = data.body.refresh_token;
     }
-
-    const spotifyApi = new SpotifyWebApi({
-      clientId:     creds.client_id,
-      clientSecret: creds.client_secret,
-      redirectUri:  creds.redirect_uri,
-    });
-    spotifyApi.setRefreshToken(token.refresh_token);
-
-    try {
-      const data = await spotifyApi.refreshAccessToken();
-      token.access_token = data.body.access_token;
-      token.expires_at   = Date.now() + data.body.expires_in * 1000;
-      if (data.body.refresh_token) token.refresh_token = data.body.refresh_token;
-      saveToken(token);
-      _logger("[token-manager] ✅ Token refreshed — valid until " + new Date(token.expires_at).toISOString());
-    } catch (err) {
-      _errorLogger("[token-manager] ❌ Token refresh failed: " + err.message);
-      // If Spotify rejects the refresh token specifically (invalid_grant: revoked or expired after months)
-      // the token is permanently broken — delete it so the UI prompts to re-authorise.
-      const body = err.body || {};
-      const errorCode = body.error || (err.message || "");
-      const isPermanent = typeof errorCode === "string" && errorCode.includes("invalid_grant");
-      if (isPermanent) {
-        _errorLogger("[token-manager] 🗑️  Removing invalid refresh token — please re-run the Setup Wizard to re-authorise.");
-        try { fs.unlinkSync(PATHS.TOKEN_FILE); } catch { /* already gone */ }
-      }
+    saveToken(token);
+    _log.info("[token-manager] ✅ Token refreshed — valid until " + new Date(token.expires_at).toISOString());
+  } catch (err) {
+    _log.error("[token-manager] Token refresh failed: " + err.message);
+    // If Spotify rejects the refresh token specifically (invalid_grant: revoked or expired after months)
+    // the token is permanently broken — delete it so the UI prompts to re-authorise.
+    const body = err.body || {};
+    const errorCode = body.error || (err.message || "");
+    const isPermanent = typeof errorCode === "string" && errorCode.includes("invalid_grant");
+    if (isPermanent) {
+      _log.warn("[token-manager] Removing invalid refresh token — please re-run the Setup Wizard to re-authorise.");
+      try { fs.unlinkSync(PATHS.TOKEN_FILE); } catch { /* already gone */ }
     }
   }
 
@@ -128,10 +144,10 @@ let _daemonTimer = null;
 
 function startTokenRefreshDaemon(intervalMs = 30 * 60 * 1000) {
   if (_daemonTimer) return; // already running
-  _logger(`[token-manager] 🕐 Token refresh daemon started (interval: ${intervalMs / 60000} min)`);
+  _log.info(`[token-manager] 🕐 Token refresh daemon started (interval: ${intervalMs / 60000} min)`);
   _daemonTimer = setInterval(() => {
     refreshTokenIfNeeded().catch((err) =>
-      _errorLogger("[token-manager] daemon error: " + err.message)
+      _log.error("[token-manager] daemon error: " + err.message)
     );
   }, intervalMs);
   // Don't block process exit

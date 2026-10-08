@@ -15,6 +15,22 @@ const SpotifyWebApi = require("spotify-web-api-node");
 const { SpotifyClientBase, SpotifyQuotaError } = require("./spotify-client-base");
 const tokenManager = require("./token-manager");
 
+// Logger — defaults to silent (no output); overridden via setLogger() from server.js
+// Accepts either a logger object { error, warn, info, debug } or a plain function (legacy).
+let _log = {
+  error: (...a) => console.error(...a),
+  warn:  (...a) => console.warn(...a),
+  info:  (...a) => console.log(...a),
+  debug: (...a) => {},
+};
+function setLogger(loggerOrFn) {
+  if (typeof loggerOrFn === "function") {
+    _log = { error: loggerOrFn, warn: loggerOrFn, info: loggerOrFn, debug: () => {} };
+  } else if (loggerOrFn && typeof loggerOrFn === "object") {
+    _log = loggerOrFn;
+  }
+}
+
 class OAuthSpotifyClient extends SpotifyClientBase {
   /**
    * @param {{ client_id: string, client_secret: string, redirect_uri: string }} credentials
@@ -147,6 +163,7 @@ class OAuthSpotifyClient extends SpotifyClientBase {
     const accessToken = this._spotifyApi.getAccessToken();
     const limit  = options.limit  || 50;
     const offset = options.offset || 0;
+    _log.debug(`[oauth] GET /me/shows limit=${limit} offset=${offset}`);
     const res = await fetch(
       `https://api.spotify.com/v1/me/shows?limit=${limit}&offset=${offset}`,
       { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -154,8 +171,10 @@ class OAuthSpotifyClient extends SpotifyClientBase {
     if (!res.ok) {
       if (res.status === 429) {
         const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
+        _log.warn(`[oauth] Rate-limited on GET /me/shows — retry after ${retryAfter}s`);
         throw new SpotifyQuotaError(retryAfter);
       }
+      _log.warn(`[oauth] GET /me/shows HTTP ${res.status}`);
       throw new Error(`getMySavedShows HTTP ${res.status}: ${await res.text()}`);
     }
     const data = await res.json();
@@ -249,8 +268,10 @@ class OAuthSpotifyClient extends SpotifyClientBase {
     if (!res.ok) {
       if (res.status === 429) {
         const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
+        _log.warn(`[oauth] Rate-limited on getPlaylistItems — retry after ${retryAfter}s`);
         throw new SpotifyQuotaError(retryAfter);
       }
+      _log.warn(`[oauth] getPlaylistItems HTTP ${res.status} for playlist ${playlistId}`);
       throw new Error(`getPlaylistItems HTTP ${res.status}: ${await res.text()}`);
     }
     const data = await res.json();
@@ -283,6 +304,7 @@ class OAuthSpotifyClient extends SpotifyClientBase {
   async replacePlaylistItems(playlistId, uris) {
     await this._ensureFreshToken();
     const accessToken = this._spotifyApi.getAccessToken();
+    _log.debug(`[oauth] PUT /playlists/${playlistId}/items (${uris.length} URIs)`);
     const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items`, {
       method:  "PUT",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -291,8 +313,10 @@ class OAuthSpotifyClient extends SpotifyClientBase {
     if (!res.ok) {
       if (res.status === 429) {
         const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
+        _log.warn(`[oauth] Rate-limited on replacePlaylistItems — retry after ${retryAfter}s`);
         throw new SpotifyQuotaError(retryAfter);
       }
+      _log.warn(`[oauth] replacePlaylistItems HTTP ${res.status}`);
       throw new Error(`replacePlaylistItems HTTP ${res.status}: ${await res.text()}`);
     }
   }
@@ -301,6 +325,7 @@ class OAuthSpotifyClient extends SpotifyClientBase {
   async addPlaylistItems(playlistId, uris) {
     await this._ensureFreshToken();
     const accessToken = this._spotifyApi.getAccessToken();
+    _log.debug(`[oauth] POST /playlists/${playlistId}/items (${uris.length} URIs)`);
     const res = await fetch(`https://api.spotify.com/v1/playlists/${playlistId}/items`, {
       method:  "POST",
       headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
@@ -309,8 +334,10 @@ class OAuthSpotifyClient extends SpotifyClientBase {
     if (!res.ok) {
       if (res.status === 429) {
         const retryAfter = parseInt(res.headers.get("Retry-After") || "60", 10);
+        _log.warn(`[oauth] Rate-limited on addPlaylistItems — retry after ${retryAfter}s`);
         throw new SpotifyQuotaError(retryAfter);
       }
+      _log.warn(`[oauth] addPlaylistItems HTTP ${res.status}`);
       throw new Error(`addPlaylistItems HTTP ${res.status}: ${await res.text()}`);
     }
   }
@@ -448,4 +475,4 @@ class OAuthSpotifyClient extends SpotifyClientBase {
   }
 }
 
-module.exports = { OAuthSpotifyClient };
+module.exports = { OAuthSpotifyClient, setLogger };

@@ -59,6 +59,12 @@ services:
       # ── Internal data path (do not change) ──────────────────────────────
       DATA_DIR: "/data"
 
+      # ── Log verbosity ────────────────────────────────────────────────────
+      # Overrides log_level in config.yaml. Remove or comment out to use the
+      # value configured in the Web UI / config.yaml instead.
+      # Values: error | warn | info (default) | debug
+      # LOG_LEVEL: "debug"
+
     # ── Resource limits (optional, recommended for NAS) ───────────────────
     # Prevents the container from consuming too much RAM on a shared NAS.
     deploy:

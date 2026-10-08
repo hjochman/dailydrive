@@ -21,6 +21,16 @@
 #         Wird automatisch gesetzt, wenn der Setup-Wizard den Cookie-Modus wählt.
 api_mode: "oauth"   # "oauth" | "cookie"
 
+# --- Log Level ---
+# Controls how verbose the container logs are.
+# Priority: LOG_LEVEL environment variable > this setting > default (info)
+#
+# error — only critical errors
+# warn  — errors + warnings (recoverable issues, fallbacks)
+# info  — normal operational messages (default)
+# debug — all detail including API calls, hash loading, per-item steps
+log_level: "info"   # "error" | "warn" | "info" | "debug"
+
 # --- Spotify App Credentials ---
 # Get these from https://developer.spotify.com/dashboard
 # IMPORTANT: Also add your Spotify email in Dashboard > User Management

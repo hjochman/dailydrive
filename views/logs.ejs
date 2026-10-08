@@ -9,7 +9,8 @@
 </div>
 
 <% if (logContent && logContent.length > 0) { %>
-<pre class="log-output" id="log-output"><%= logContent %></pre>
+<pre class="log-output" id="log-output"></pre>
+<script type="application/json" id="log-data"><%- JSON.stringify(logContent).replace(/</g, '\\u003c') %></script>
 <% } else { %>
 <div class="card">
   <p style="color:var(--text-muted)" data-i18n="logs_empty">No log entries yet.</p>
@@ -17,16 +18,31 @@
 <% } %>
 
 <script>
-// Auto-scroll to bottom on load
 const logEl = document.getElementById('log-output');
-if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+// Render log text line by line; ERROR / WARN lines get highlighted via CSS classes.
+// Uses textContent only (no innerHTML) so log content can never inject markup.
+function renderLog(text) {
+  logEl.textContent = '';
+  text.split('\n').forEach((line, i, arr) => {
+    const span = document.createElement('span');
+    span.className = 'log-line';
+    if (line.includes('[ERROR]')) span.className += ' log-error';
+    else if (line.includes('[WARN]')) span.className += ' log-warn';
+    span.textContent = line + (i < arr.length - 1 ? '\n' : '');
+    logEl.appendChild(span);
+  });
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+const dataEl = document.getElementById('log-data');
+if (logEl && dataEl) renderLog(JSON.parse(dataEl.textContent));
 
 async function loadLogs() {
   const res = await fetch('/logs?raw=1');
   const text = await res.text();
   if (logEl) {
-    logEl.textContent = text;
-    logEl.scrollTop = logEl.scrollHeight;
+    renderLog(text);
   } else {
     location.reload();
   }

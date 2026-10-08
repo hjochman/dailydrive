@@ -21,6 +21,11 @@ services:
       # ── Data directory inside the container (do not change) ──────────────
       DATA_DIR: /data
 
+      # ── Log verbosity ────────────────────────────────────────────────────
+      # Overrides log_level from config.yaml. Remove line to use config value.
+      # Values: error | warn | info (default) | debug
+      # LOG_LEVEL: debug
+
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/status"]
       interval: 30s

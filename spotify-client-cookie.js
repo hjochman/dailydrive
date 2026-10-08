@@ -25,10 +25,21 @@ const fetchFn = typeof fetch !== "undefined" ? fetch : require("node-fetch");
 // Session file path
 const COOKIE_SESSION_FILE = path.join(PATHS.DATA_DIR, ".cookie-session.json");
 
-// Logger — defaults to console, can be overridden via setLogger()
-let log = (...a) => console.log(...a);
-function setLogger(fn) {
-  log = fn;
+// Logger — defaults to console.log for all levels; overridden via setLogger() from server.js
+// Accepts either a logger object { error, warn, info, debug } or a plain function (legacy).
+let _log = {
+  error: (...a) => console.error(...a),
+  warn:  (...a) => console.warn(...a),
+  info:  (...a) => console.log(...a),
+  debug: (...a) => {},          // silent by default (no level config at this point)
+};
+function setLogger(loggerOrFn) {
+  if (typeof loggerOrFn === "function") {
+    // Legacy: wrap plain function — treat everything as info-level
+    _log = { error: loggerOrFn, warn: loggerOrFn, info: loggerOrFn, debug: () => {} };
+  } else if (loggerOrFn && typeof loggerOrFn === "object") {
+    _log = loggerOrFn;
+  }
 }
 
 // Constants
@@ -253,7 +264,7 @@ class CookieSpotifyClient extends SpotifyClientBase {
     // 1. Try loading valid cached session from disk
     if (this._loadSession()) {
       // Essential query hashes — if any are missing, rebuild session to fetch sub-chunks
-      const essential = ["userTopContent", "searchTracks", "fetchPlaylistContents", "queryPodcastEpisodes", "libraryV3", "fetchPlaylistMetadata"];
+      const essential = ["userTopContent", "searchTracks", "fetchPlaylistContents", "queryPodcastEpisodes", "libraryV3", "fetchPlaylistMetadata", "fetchLibraryTracks"];
       const hasAllHashes = essential.every((op) => !!this._queryHashes[op]);
       if (this._expiresAtMs && this._expiresAtMs > Date.now() + 5 * 60 * 1000 && hasAllHashes) {
         this.startDaemon();
@@ -447,7 +458,7 @@ class CookieSpotifyClient extends SpotifyClientBase {
             extraLinks.push(`${CDN_PREFIX}${name}.${hashMap[key]}.js`);
           }
         }
-        log(`[cookie] Fetching ${extraLinks.length} sub-chunks for query hashes…`);
+        _log.debug(`[cookie] Fetching ${extraLinks.length} sub-chunks for query hashes…`);
         // Fetch all chunks in parallel — userTopContent / searchTracks hashes can
         // be in any sub-chunk, so we cannot safely skip any of them.
         await Promise.allSettled(
@@ -462,13 +473,25 @@ class CookieSpotifyClient extends SpotifyClientBase {
           })
         );
       } else {
-        log("[cookie] extractMappings returned null — no sub-chunks loaded");
+        _log.debug("[cookie] extractMappings returned null — no sub-chunks loaded");
       }
     }
 
     // Log which query hashes were found — helpful for diagnosing 412 errors
     const foundHashes = Object.keys(this._queryHashes);
-    log(`[cookie] Loaded ${foundHashes.length} query hashes.`);
+    _log.debug(`[cookie] Loaded ${foundHashes.length} query hashes: ${foundHashes.join(", ")}`);
+
+    // Warn about any essential operation whose hash was not found in the bundles.
+    // This fires when Spotify renames or removes an operation — the call will fail
+    // or silently return empty data later at runtime.
+    const essential = ["userTopContent", "searchTracks", "fetchPlaylistContents", "queryPodcastEpisodes", "libraryV3", "fetchPlaylistMetadata", "fetchLibraryTracks"];
+    const missingHashes = essential.filter((op) => !this._queryHashes[op]);
+    if (missingHashes.length > 0) {
+      _log.error(
+        `[cookie] ⚠️  Query hash(es) not found in Spotify JS bundles — Spotify may have renamed or removed these operations: ${missingHashes.join(", ")}. ` +
+        `Affected features will fail. Check https://github.com/nicholasess/dailydrive for updates.`
+      );
+    }
 
     // Extract TOTP secret — let the error propagate with full detail
     if (!webPlayerCode) {
@@ -601,9 +624,16 @@ class CookieSpotifyClient extends SpotifyClientBase {
 
     let hash = this._getQueryHash(operationName);
     if (!hash) {
-      // Re-scan bundles if hash missing
+      // Hash not in cache — Spotify may have deployed a new bundle; re-scan once
+      _log.warn(`[cookie] Query hash for "${operationName}" not found in cache — re-scanning JS bundles…`);
       await this._buildFreshSession();
       hash = this._getQueryHash(operationName);
+      if (!hash) {
+        _log.error(
+          `[cookie] ❌ Query hash for "${operationName}" still missing after re-scanning all Spotify JS bundles. ` +
+          `Spotify may have renamed or removed this operation. The request will be sent without a valid hash and will likely fail.`
+        );
+      }
     }
 
     const payload = {
@@ -647,9 +677,16 @@ class CookieSpotifyClient extends SpotifyClientBase {
 
     if (res.status === 412 && !isRetry) {
       // Stale query hash (Spotify deployed a new bundle) — refresh all hashes and retry once
-      log(`[cookie] 412 Invalid query hash for ${operationName} — rebuilding session hashes…`);
+      _log.warn(`[cookie] 412 stale query hash for "${operationName}" — Spotify deployed a new bundle, rebuilding hashes and retrying…`);
       this._queryHashes = {};
       await this._buildFreshSession();
+      const newHash = this._getQueryHash(operationName);
+      if (!newHash) {
+        _log.error(
+          `[cookie] ❌ Query hash for "${operationName}" not found after bundle rebuild following 412. ` +
+          `Spotify may have renamed this operation. Retrying anyway — expect another failure.`
+        );
+      }
       return this.pathfinderQuery(operationName, variables, true);
     }
 
@@ -783,15 +820,14 @@ class CookieSpotifyClient extends SpotifyClientBase {
       data?.podcastUnion?.episodes?.items ||
       [];
 
-    // Log raw episode structure once (first item) so we can verify what
-    // Pathfinder returns for resume/playback fields.
+    // Log raw episode structure once (first item) at debug level
     if (items.length > 0) {
       const sample = items[0].entity?.data || items[0].data || items[0];
-      log(`[cookie][debug] queryPodcastEpisodes sample fields: ${JSON.stringify(Object.keys(sample))}`);
+      _log.debug(`[cookie] queryPodcastEpisodes sample fields: ${JSON.stringify(Object.keys(sample))}`);
       if (sample.resumePoint !== undefined || sample.playbackState !== undefined || sample.playedState !== undefined || sample.duration !== undefined) {
-        log(`[cookie][debug] resume/duration data: ${JSON.stringify({ resumePoint: sample.resumePoint, playbackState: sample.playbackState, playedState: sample.playedState, duration: sample.duration, durationMs: sample.durationMs })}`);
+        _log.debug(`[cookie] resume/duration data: ${JSON.stringify({ resumePoint: sample.resumePoint, playbackState: sample.playbackState, playedState: sample.playedState, duration: sample.duration, durationMs: sample.durationMs })}`);
       } else {
-        log(`[cookie][debug] No resumePoint/playbackState/playedState/duration fields found in episode data`);
+        _log.debug("[cookie] No resumePoint/playbackState/playedState/duration fields found in episode data");
       }
     }
 
@@ -876,7 +912,12 @@ class CookieSpotifyClient extends SpotifyClientBase {
   }
 
   /**
-   * Fetches the current user's saved/liked tracks.
+   * Fetches the current user's saved/liked tracks via the `fetchLibraryTracks`
+   * Pathfinder operation.
+   *
+   * Response shape: data.me.library.tracks.items[]
+   *   each item: { track: { _uri: "spotify:track:…", data: { name, artists } } }
+   *
    * @param {object} [options]
    * @param {number} [options.limit=50]
    * @param {number} [options.offset=0]
@@ -886,26 +927,21 @@ class CookieSpotifyClient extends SpotifyClientBase {
     const limit = options.limit || 50;
     const offset = options.offset || 0;
 
-    const data = await this.pathfinderQuery("fetchLibraryTracks", {
-      offset,
-      limit,
-    });
+    const data = await this.pathfinderQuery("fetchLibraryTracks", { limit, offset });
 
-    const items =
-      data?.me?.library?.tracks?.items ||
-      data?.library?.tracks?.items ||
-      [];
+    const items = data?.me?.library?.tracks?.items || [];
 
     return items
-      .map((item) => {
-        const track = item.track?.data || item.data || item;
-        const uri = track.uri || (track.id ? `spotify:track:${track.id}` : "");
+      .map((entry) => {
+        // URI lives on track._uri; track.data holds name/artists
+        const uri = entry.track?._uri || entry.track?.data?.uri || "";
+        if (!uri.startsWith("spotify:track:")) return null;
+        const track = entry.track?.data || {};
         const name = track.name || "";
         const artist =
           track.artists?.items?.map((a) => a.profile?.name || a.name).filter(Boolean).join(", ") ||
           track.artists?.map((a) => a.name).filter(Boolean).join(", ") ||
           "Unknown";
-        if (!uri) return null;
         return { uri, name, artist, type: "track" };
       })
       .filter(Boolean);
@@ -1534,7 +1570,7 @@ class CookieSpotifyClient extends SpotifyClientBase {
     }
 
     const cdnHex = Buffer.from(pictureB64, "base64").toString("hex");
-    log(`[cookie] setPlaylistCoverImage CDN: https://i.scdn.co/image/${cdnHex}`);
+    _log.debug(`[cookie] setPlaylistCoverImage CDN: https://i.scdn.co/image/${cdnHex}`);
 
     // ── Step 3: UPDATE_LIST_ATTRIBUTES /changes — registers picture on playlist ──
     // picture value must be the raw base64 string from step 2 (Spotify's toJSON

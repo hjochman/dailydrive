@@ -21,7 +21,9 @@ const { OAuthSpotifyClient } = require("./spotify-client-oauth");
 const { createSpotifyClient } = require("./spotify-client-factory");
 const { NotSupportedError } = require("./spotify-client-base");
 const { setLogger: setCookieLogger } = require("./spotify-client-cookie");
+const { setLogger: setOAuthLogger } = require("./spotify-client-oauth");
 const { main: runRefresh, setLogger: setIndexLogger, SpotifyQuotaError } = require("./index");
+const { createLogger, resolveLogLevel } = require("./logger");
 
 // ---------------------------------------------------------------------------
 // Config
@@ -78,17 +80,42 @@ try {
 
 function logLine(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
-  console.log(line);
+  // Colourise console output only (log file stays plain text)
+  if (msg.startsWith("[ERROR]")) {
+    console.log(`\x1b[1;97;41m${line}\x1b[0m`);   // bold white on red background
+  } else if (msg.startsWith("[WARN]")) {
+    console.log(`\x1b[1;33m${line}\x1b[0m`);      // bold yellow
+  } else {
+    console.log(line);
+  }
   try {
     const day = new Date().toISOString().slice(0, 10);
     fs.appendFileSync(path.join(PATHS.LOG_DIR, `${day}.log`), line + "\n");
   } catch (_) { /* best-effort */ }
 }
 
-// Route index.js, token-manager.js, and cookie client log output through logLine so it appears in the web UI log
-setIndexLogger(logLine);
-tokenManager.setLogger(logLine, logLine);
-setCookieLogger(logLine);
+/**
+ * Build a level-aware logger and wire it into all modules.
+ * Call once on startup and again whenever the config changes.
+ */
+function applyLogLevel() {
+  const cfg = loadConfig();
+  const level = resolveLogLevel(cfg);
+  const logger = createLogger(logLine, level);
+  setIndexLogger(logger);
+  tokenManager.setLogger(logger);
+  setCookieLogger(logger);
+  setOAuthLogger(logger);
+  return logger;
+}
+
+// Bootstrap logger — modules can receive calls before the first request
+let _logger = applyLogLevel();
+// Convenience shorthands used throughout server.js itself
+const logInfo  = (...a) => _logger.info(...a);
+const logWarn  = (...a) => _logger.warn(...a);
+const logDebug = (...a) => _logger.debug(...a);
+const logError = (...a) => _logger.error(...a);
 
 // ---------------------------------------------------------------------------
 // Config I/O
@@ -229,41 +256,41 @@ function scheduleQuotaRetry(retryAfterDate) {
   // In all other cases (nextCron <= retryAfterDate) the cron would be skipped,
   // so we must schedule the one-shot timer.
   if (nextCron > retryAfterDate) {
-    logLine(`ℹ️  Next cron slot (${nextCron.toISOString()}) is after quota cooldown (${retryAfterDate.toISOString()}) — no extra timer needed`);
+    logDebug(`Next cron slot (${nextCron.toISOString()}) is after quota cooldown (${retryAfterDate.toISOString()}) — no extra timer needed`);
     return;
   }
 
   const delayMs = fireAt.getTime() - Date.now();
-  logLine(`⏰ Quota retry scheduled for ${fireAt.toISOString()} (${Math.round(delayMs / 60000)} min from now)`);
+  logInfo(`Quota retry scheduled for ${fireAt.toISOString()} (${Math.round(delayMs / 60000)} min from now)`);
 
   _quotaRetryTimer = setTimeout(async () => {
     _quotaRetryTimer = null;
     if (_refreshRunning) {
-      logLine("⏭️  Quota retry skipped — refresh already running");
+      logDebug("Quota retry skipped — refresh already running");
       return;
     }
     // Double-check: quota may have been re-hit since we scheduled this
     if (_quotaRetryAfter && _quotaRetryAfter > new Date()) {
-      logLine("⏭️  Quota retry skipped — rate limit still active");
+      logDebug("Quota retry skipped — rate limit still active");
       return;
     }
     _refreshRunning = true;
-    logLine("▶️  Quota retry refresh starting…");
+    logInfo("▶️  Quota retry refresh starting…");
     try {
       await runRefresh();
       _lastRefreshTime = new Date();
       _lastRefreshError = null;
       _quotaRetryAfter = null;
-      logLine("✅ Quota retry refresh complete");
+      logInfo("✅ Quota retry refresh complete");
     } catch (err) {
       if (err && err.name === "SpotifyQuotaError") {
         _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
         _lastRefreshError = err.message;
-        logLine(`⏳ Quota retry hit rate limit again — next retry at ${_quotaRetryAfter.toISOString()}`);
+        logWarn(`Quota retry hit rate limit again — next retry at ${_quotaRetryAfter.toISOString()}`);
         scheduleQuotaRetry(_quotaRetryAfter); // reschedule
       } else {
         _lastRefreshError = err.message;
-        logLine("❌ Quota retry refresh failed: " + err.message);
+        logError("Quota retry refresh failed: " + err.message);
       }
     } finally {
       _refreshRunning = false;
@@ -384,9 +411,11 @@ function flash(req) {
 
 // ── GET /  Dashboard ────────────────────────────────────────────────────────
 app.get("/", async (req, res) => {
-  // Ensure token is refreshed proactively if expired/expiring
-  await tokenManager.refreshTokenIfNeeded().catch(() => {});
   const config = loadConfig();
+  // Ensure OAuth token is refreshed proactively if expired/expiring — not needed in cookie mode
+  if ((config.api_mode || "oauth") === "oauth") {
+    await tokenManager.refreshTokenIfNeeded().catch(() => {});
+  }
   const status = getAppStatus();
   const state  = loadState();
 
@@ -421,9 +450,9 @@ app.get("/", async (req, res) => {
         // Rate-limited — set global quota state so subsequent page loads skip the live fetch
         _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
         scheduleQuotaRetry(_quotaRetryAfter);
-        logLine(`⚠️  [dashboard] Rate-limited fetching playlist — suppressing live fetch until ${_quotaRetryAfter.toISOString()}`);
+        logWarn(`[dashboard] Rate-limited fetching playlist — suppressing live fetch until ${_quotaRetryAfter.toISOString()}`);
       } else {
-        logLine(`❌ [dashboard] Failed to fetch live playlist tracks: ${err.message}`);
+        logError(`[dashboard] Failed to fetch live playlist tracks: ${err.message}`);
       }
       playlistError = err.message;
     }
@@ -490,9 +519,9 @@ app.post("/setup/credentials", async (req, res) => {
         const { CookieSpotifyClient } = require("./spotify-client-cookie");
         const cookieClient = new CookieSpotifyClient({ sp_dc: config.spotify.sp_dc });
         await cookieClient.initialize();
-        logLine("✅ Cookie-mode Spotify login successful");
+        logInfo("✅ Cookie-mode Spotify login successful");
       } catch (loginErr) {
-        logLine("❌ Cookie-mode login failed: " + loginErr.message);
+        logError("Cookie-mode login failed: " + loginErr.message);
         return res.redirect("/setup?step=1&error=" + encodeURIComponent("Login fehlgeschlagen: " + loginErr.message));
       }
       return res.redirect("/setup?step=3");
@@ -507,7 +536,7 @@ app.post("/setup/credentials", async (req, res) => {
     saveConfig(config);
     res.redirect("/setup?step=2");
   } catch (err) {
-    logLine("❌ /setup/credentials error: " + err.message);
+    logError("/setup/credentials error: " + err.message);
     res.redirect("/setup?step=1&error=" + encodeURIComponent(err.message));
   }
 });
@@ -686,7 +715,7 @@ app.post("/setup/playlist", (req, res) => {
     // Go straight to config editor so user can add podcasts, music etc.
     res.redirect("/config?setup=1");
   } catch (err) {
-    logLine("❌ /setup/playlist error: " + err.message);
+    logError("/setup/playlist error: " + err.message);
     res.redirect("/setup?step=3&error=" + encodeURIComponent(err.message));
   }
 });
@@ -714,20 +743,20 @@ app.post("/api/create-playlist", async (req, res) => {
       const coverPath = path.join(__dirname, "public", "img", "playlist-cover.jpg");
       const coverBuf  = fs.readFileSync(coverPath);
       await client.setPlaylistCoverImage(id, coverBuf);
-      logLine(`🖼️  Cover image set for playlist ${id}`);
+      logInfo(`Cover image set for playlist ${id}`);
     } catch (imgErr) {
       if (imgErr.name === "NotSupportedError") {
-        logLine(`ℹ️  Cover image not supported in current API mode — skipping`);
+        logDebug("Cover image not supported in current API mode — skipping");
       } else {
-        logLine(`⚠️  Could not set playlist cover: ${imgErr.message}`);
+        logWarn(`Could not set playlist cover: ${imgErr.message}`);
         // Non-fatal — playlist was created successfully
       }
     }
 
-    logLine(`✅ Created playlist "${name}" (${id}) for user ${userId}`);
+    logInfo(`✅ Created playlist "${name}" (${id}) for user ${userId}`);
     res.json({ id, name });
   } catch (err) {
-    logLine("❌ create-playlist failed: " + err.message);
+    logError("create-playlist failed: " + err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -762,7 +791,7 @@ app.get("/setup/authorize", (req, res) => {
     const authUrl = oauthClient.getOAuthUrl(SCOPES, isReauth ? "dailydrive_reauth" : "dailydrive");
     res.redirect(authUrl);
   } catch (err) {
-    logLine("❌ /setup/authorize error: " + err.message);
+    logError("/setup/authorize error: " + err.message);
     res.redirect("/setup?step=2&error=" + encodeURIComponent(err.message));
   }
 });
@@ -791,11 +820,11 @@ app.get("/callback", async (req, res) => {
 
     await oauthClient.exchangeCode(code);
 
-    logLine("✅ Spotify OAuth successful — token saved");
+    logInfo("✅ Spotify OAuth successful — token saved");
     const { state } = req.query;
     res.redirect(state === "dailydrive_reauth" ? "/?reauth=1" : "/setup?step=3");
   } catch (err) {
-    logLine("❌ OAuth token exchange failed: " + err.message);
+    logError("OAuth token exchange failed: " + err.message);
     res.redirect(`/setup?step=2&error=${encodeURIComponent(err.message)}`);
   }
 });
@@ -835,10 +864,10 @@ app.post("/setup/callback-paste", async (req, res) => {
 
     await oauthClient.exchangeCode(code);
 
-    logLine("✅ Spotify OAuth successful via URL copy-paste — token saved");
+    logInfo("✅ Spotify OAuth successful via URL copy-paste — token saved");
     res.redirect(state === "dailydrive_reauth" ? "/?reauth=1" : "/setup?step=3");
   } catch (err) {
-    logLine("❌ OAuth token exchange via URL copy-paste failed: " + err.message);
+    logError("OAuth token exchange via URL copy-paste failed: " + err.message);
     res.redirect(`/setup?step=2&error=${encodeURIComponent(err.message)}`);
   }
 });
@@ -957,6 +986,8 @@ app.post("/config", (req, res) => {
       ? String(b.refresh_interval).trim()
       : (existing.refresh_interval || "24h"),
     schedule:         existing.schedule || {},
+    // log_level: only persist if not overridden by ENV (ENV always takes precedence at runtime)
+    ...(b.log_level ? { log_level: b.log_level.toLowerCase().trim() } : (existing.log_level ? { log_level: existing.log_level } : {})),
   };
 
   // Podcasts
@@ -1004,10 +1035,13 @@ app.post("/config", (req, res) => {
     startScheduler();
   }
 
-  logLine("💾 Configuration saved via web UI");
+  // Re-apply log level (ENV always wins, but config.log_level may have changed)
+  _logger = applyLogLevel();
+
+  logInfo("💾 Configuration saved via web UI");
   res.redirect("/?ok=Configuration+saved");
   } catch (err) {
-    logLine("❌ /config save error: " + err.message);
+    logError("/config save error: " + err.message);
     res.redirect("/config?error=" + encodeURIComponent(err.message));
   }
 });
@@ -1030,24 +1064,24 @@ app.post("/refresh", async (req, res) => {
   _refreshRunning = true;
 
   try {
-    logLine("▶️  Manual playlist refresh triggered via web UI");
+    logInfo("▶️  Manual playlist refresh triggered via web UI");
     await runRefresh();
     _lastRefreshTime = new Date();
     _lastRefreshError = null;
     _quotaRetryAfter = null;
     if (_quotaRetryTimer) { clearTimeout(_quotaRetryTimer); _quotaRetryTimer = null; }
-    logLine("✅ Manual refresh complete");
+    logInfo("✅ Manual refresh complete");
     res.json({ ok: true });
   } catch (err) {
     if (err && err.name === "SpotifyQuotaError") {
       _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
       _lastRefreshError = err.message;
-      logLine(`⏳ Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
+      logWarn(`Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
       scheduleQuotaRetry(_quotaRetryAfter);
       res.status(429).json({ ok: false, error: err.message, retryAfter: _quotaRetryAfter });
     } else {
       _lastRefreshError = err.message;
-      logLine("❌ Manual refresh failed: " + err.message);
+      logError("Manual refresh failed: " + err.message);
       res.status(500).json({ ok: false, error: err.message });
     }
   } finally {
@@ -1291,36 +1325,36 @@ function startScheduler() {
     desc = `every ${days}d at 04:00`;
   }
 
-  logLine(`⏰ Scheduler starting — cron: "${cronExpr}" (${desc}, configured: "${intervalStr}")`);
+  logInfo(`⏰ Scheduler starting — cron: "${cronExpr}" (${desc}, configured: "${intervalStr}")`);
 
   _schedulerTask = cron.schedule(cronExpr, async () => {
     if (_refreshRunning) {
-      logLine("⏭️  Skipping scheduled refresh — already running");
+      logDebug("Skipping scheduled refresh — already running");
       return;
     }
     // Honour Spotify Retry-After: skip this scheduled slot if we're still in cooldown
     if (_quotaRetryAfter && _quotaRetryAfter > new Date()) {
-      logLine(`⏭️  Skipping scheduled refresh — Spotify rate limit active until ${_quotaRetryAfter.toISOString()}`);
+      logDebug(`Skipping scheduled refresh — Spotify rate limit active until ${_quotaRetryAfter.toISOString()}`);
       return;
     }
     _refreshRunning = true;
     try {
-      logLine("▶️  Scheduled playlist refresh starting…");
+      logInfo("▶️  Scheduled playlist refresh starting…");
       await runRefresh();
       _lastRefreshTime = new Date();
       _lastRefreshError = null;
       _quotaRetryAfter = null;
       if (_quotaRetryTimer) { clearTimeout(_quotaRetryTimer); _quotaRetryTimer = null; }
-      logLine("✅ Scheduled refresh complete");
+      logInfo("✅ Scheduled refresh complete");
     } catch (err) {
       if (err && err.name === "SpotifyQuotaError") {
         _quotaRetryAfter = new Date(Date.now() + (err.retryAfter || 60) * 1000);
         _lastRefreshError = err.message;
-        logLine(`⏳ Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
+        logWarn(`Spotify quota exceeded — next retry allowed at ${_quotaRetryAfter.toISOString()}`);
         scheduleQuotaRetry(_quotaRetryAfter);
       } else {
         _lastRefreshError = err.message;
-        logLine("❌ Scheduled refresh failed: " + err.message);
+        logError("Scheduled refresh failed: " + err.message);
       }
     } finally {
       _refreshRunning = false;
@@ -1333,9 +1367,10 @@ function startScheduler() {
 // ---------------------------------------------------------------------------
 
 app.listen(WEB_PORT, "0.0.0.0", () => {
-  logLine(`🚀 Daily Drive by IBM Bob — Web UI started on port ${WEB_PORT}`);
-  logLine(`   Data directory : ${PATHS.DATA_DIR}`);
-  logLine(`   Refresh interval: ${getRefreshIntervalStr()}`);
+  logInfo(`🚀 Daily Drive by IBM Bob — Web UI started on port ${WEB_PORT}`);
+  logInfo(`   Data directory : ${PATHS.DATA_DIR}`);
+  logInfo(`   Refresh interval: ${getRefreshIntervalStr()}`);
+  logInfo(`   Log level       : ${resolveLogLevel(loadConfig())}`);
 
   // Start background token refresh daemon in OAuth mode only (check every 30 min)
   const _startCfg = loadConfig();

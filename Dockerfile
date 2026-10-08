@@ -31,8 +31,7 @@ COPY paths.js \
      server.js \
      index.js \
      setup.js \
-     taste-profile.js \
-     taste-profile-google.js \
+     logger.js \
      ./
 
 # Copy view templates and public assets

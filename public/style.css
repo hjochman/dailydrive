@@ -497,6 +497,7 @@ h3 { font-size: 1rem; font-weight: 600; margin-bottom: 0.5rem; }
    Forms
    ============================================================================= */
 .form-group { margin-bottom: 1.25rem; }
+.form-hint { display: block; font-size: 0.75rem; color: var(--text-muted); margin-top: 0.3rem; }
 
 label {
   display: block;
@@ -827,6 +828,22 @@ input[type="checkbox"] {
   max-height: 70vh;
   overflow-y: auto;
 }
+.log-output .log-error {
+  display: inline-block;
+  width: 100%;
+  background: rgba(218, 30, 40, 0.22);
+  border-left: 4px solid #fa4d56;
+  color: #ff8389;
+  font-weight: 700;
+  padding-left: 0.5rem;
+  margin-left: -0.5rem;
+}
+.log-output .log-warn {
+  color: #f1c21b;
+  font-weight: 600;
+}
+
+
 
 /* =============================================================================
    Alert / Flash messages

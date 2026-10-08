@@ -331,6 +331,17 @@
       <label data-i18n="config_refresh_interval">Refresh interval (e.g. 30m, 1h, 24h)</label>
       <input type="text" name="refresh_interval" value="<%= refreshInterval %>" placeholder="e.g. 30m, 1h, 24h">
     </div>
+    <div class="form-group">
+      <label data-i18n="config_log_level">Log level</label>
+      <select name="log_level">
+        <% const currentLogLevel = (config.log_level || 'info').toLowerCase(); %>
+        <option value="error" <%= currentLogLevel === 'error' ? 'selected' : '' %> data-i18n="config_log_level_error">error — critical errors only</option>
+        <option value="warn"  <%= currentLogLevel === 'warn'  ? 'selected' : '' %> data-i18n="config_log_level_warn">warn — errors + warnings</option>
+        <option value="info"  <%= currentLogLevel === 'info'  ? 'selected' : '' %> data-i18n="config_log_level_info">info — normal output (default)</option>
+        <option value="debug" <%= currentLogLevel === 'debug' ? 'selected' : '' %> data-i18n="config_log_level_debug">debug — verbose detail</option>
+      </select>
+      <small class="form-hint" data-i18n="config_log_level_hint">Override with LOG_LEVEL env var. Takes effect after restart.</small>
+    </div>
   </div>
 
   <div class="btn-row">
@@ -412,6 +423,7 @@
 <script>
 function onApiModeChange(val) {
   const isCookie = (val === 'cookie');
+  if (typeof updateMusicComposition === 'function') updateMusicComposition();
   document.getElementById('cookie-credentials').style.display = isCookie ? 'block' : 'none';
   document.getElementById('oauth-credentials-card').style.display = isCookie ? 'none' : 'block';
   document.getElementById('cookie-test-panel-config').style.display = isCookie ? 'block' : 'none';
@@ -991,8 +1003,10 @@ function updateMusicComposition() {
   // Actual familiar songs that can be placed in playlist
   const actualFamiliarCount = Math.min(targetFamiliar, totalFamiliarPool);
 
-  // 3. Calculate Discovery capacity (max 10 tracks per genre search in Spotify Dev Mode)
-  const maxPossibleDiscovery = genreCount * 10;
+  // 3. Calculate Discovery capacity: OAuth/Dev Mode max 10 per genre search;
+  //    cookie mode has no cap (the needed count per genre is computed at refresh time).
+  const isCookieMode = (document.querySelector('[name="api_mode"]')?.value || '<%= config.api_mode || "oauth" %>') === 'cookie';
+  const maxPossibleDiscovery = isCookieMode ? Infinity : genreCount * 10;
   const actualDiscoveryCount = hasGenres ? Math.min(targetDiscovery, maxPossibleDiscovery) : 0;
 
   const actualTotalMusic = actualFamiliarCount + actualDiscoveryCount;
