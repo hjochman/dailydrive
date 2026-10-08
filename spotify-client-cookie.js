@@ -1192,30 +1192,36 @@ class CookieSpotifyClient extends SpotifyClientBase {
    */
   async getUserPlaylists(options = {}) {
     const limit = options.limit || 50;
-    const offset = options.offset || 0;
+    const startOffset = options.offset || 0;
 
-    const data = await this.pathfinderQuery("libraryV3", {
-      filters: ["Playlists"],        // correct case-sensitive filter id
-      order: null,
-      textFilter: "",
-      features: ["LIKED_SONGS", "YOUR_EPISODES"],
-      limit,
-      offset,
-      flatten: false,
-      expandedFolders: [],
-      folderUri: null,
-      includeFoldersWhenFlattening: true,
-    });
+    const allResults = [];
+    let offset = startOffset;
 
-    const items = data?.me?.libraryV3?.items || data?.libraryV3?.items || [];
-    return items
-      .map((entry) => {
+    // libraryV3 paginates; fetch all pages so playlists beyond the first 50 are included.
+    while (true) {
+      const data = await this.pathfinderQuery("libraryV3", {
+        filters: ["Playlists"],        // correct case-sensitive filter id
+        order: null,
+        textFilter: "",
+        features: ["LIKED_SONGS", "YOUR_EPISODES"],
+        limit,
+        offset,
+        flatten: false,
+        expandedFolders: [],
+        folderUri: null,
+        includeFoldersWhenFlattening: true,
+      });
+
+      const items = data?.me?.libraryV3?.items || data?.libraryV3?.items || [];
+      const totalCount = data?.me?.libraryV3?.totalCount ?? data?.libraryV3?.totalCount ?? null;
+
+      for (const entry of items) {
         const item = entry.item?.data || entry.data || entry;
         // Only real playlists (not PseudoPlaylist = Liked Songs, Your Episodes)
-        if (item.__typename !== "Playlist") return null;
+        if (item.__typename !== "Playlist") continue;
         const uri = item.uri || "";
         const id = uri.replace(/^spotify:playlist:/, "");
-        if (!id || id === uri) return null; // guard: uri didn't start with spotify:playlist:
+        if (!id || id === uri) continue; // guard: uri didn't start with spotify:playlist:
 
         const images = [];
         // New schema: images.items[].sources[].url
@@ -1229,7 +1235,7 @@ class CookieSpotifyClient extends SpotifyClientBase {
         const ownerName = item.ownerV2?.data?.name || item.owner?.name || "";
         const ownerId   = item.ownerV2?.data?.username || item.ownerV2?.data?.id || item.owner?.id || "";
 
-        return {
+        allResults.push({
           id,
           name:         item.name || "Untitled Playlist",
           images,
@@ -1237,9 +1243,16 @@ class CookieSpotifyClient extends SpotifyClientBase {
           owner_id:     ownerId,
           is_own:       true,
           tracks_total: 0,         // not available in libraryV3 schema
-        };
-      })
-      .filter(Boolean);
+        });
+      }
+
+      offset += items.length;
+
+      // Stop when we've fetched everything or the page was not full (no more pages)
+      if (totalCount !== null ? offset >= totalCount : items.length < limit) break;
+    }
+
+    return allResults;
   }
 
   /**

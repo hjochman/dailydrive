@@ -374,20 +374,40 @@ class OAuthSpotifyClient extends SpotifyClientBase {
   /** @inheritdoc */
   async getUserPlaylists(options = {}) {
     await this._ensureFreshToken();
-    const [playlistData, meData] = await Promise.all([
-      this._spotifyApi.getUserPlaylists({ limit: options.limit || 50, offset: options.offset || 0 }),
-      this._spotifyApi.getMe(),
-    ]);
+    const limit = options.limit || 50;
+    const startOffset = options.offset || 0;
+
+    const meData = await this._spotifyApi.getMe();
     const myUserId = meData.body.id;
-    return playlistData.body.items.map((item) => ({
-      id:           item.id,
-      name:         item.name,
-      images:       item.images || [],
-      owner:        item.owner?.display_name,
-      owner_id:     item.owner?.id,
-      is_own:       item.owner?.id === myUserId,
-      tracks_total: item.tracks?.total != null ? item.tracks.total : (item.items?.total ?? 0),
-    }));
+
+    const allResults = [];
+    let offset = startOffset;
+
+    // /me/playlists paginates; fetch all pages so playlists beyond the first 50 are included.
+    while (true) {
+      const playlistData = await this._spotifyApi.getUserPlaylists({ limit, offset });
+      const items = playlistData.body.items || [];
+      const total = playlistData.body.total ?? null;
+
+      for (const item of items) {
+        allResults.push({
+          id:           item.id,
+          name:         item.name,
+          images:       item.images || [],
+          owner:        item.owner?.display_name,
+          owner_id:     item.owner?.id,
+          is_own:       item.owner?.id === myUserId,
+          tracks_total: item.tracks?.total != null ? item.tracks.total : (item.items?.total ?? 0),
+        });
+      }
+
+      offset += items.length;
+
+      // Stop when all items fetched or page was not full (no more pages)
+      if (total !== null ? offset >= total : items.length < limit) break;
+    }
+
+    return allResults;
   }
 
   // ---------------------------------------------------------------------------
