@@ -1330,6 +1330,12 @@ app.get("/api/playlist-info/:id", async (req, res) => {
   }
 });
 
+// ── GET /api/health  Minimal liveness probe (used by Docker HEALTHCHECK) ─────
+// Intentionally does nothing except return 200 — must never block.
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
 // ── GET /api/status  JSON status (for polling) ───────────────────────────────
 app.get("/api/status", (req, res) => {
   res.json({

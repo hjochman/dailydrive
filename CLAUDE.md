@@ -204,7 +204,7 @@ Demeterics key modes:
 - `GET /v1/shows/{id}/episodes` — latest podcast episodes
 - `GET /v1/me/top/tracks` — user's most-played tracks
 - `GET /v1/search` — genre-based track discovery
-- `GET /v1/playlists/{id}/items` — tracks/episodes from playlists (replaces `/tracks` which returns 403 since Feb 2026)
+- `GET /v1/playlists/{id}/items` — tracks/episodes from playlists (replaces `/tracks` which returns 403 since Feb 2026). Response shape: each entry has `entry.item` (track or episode object) — **not** `entry.track`. Fall back to `entry.track || entry.episode` for older API versions.
 - `PUT /v1/playlists/{id}/items` — replace playlist contents
 - `POST /v1/playlists/{id}/items` — add tracks (for batches > 100)
 - `PUT /v1/playlists/{id}/images` — upload playlist cover image (requires `ugc-image-upload` scope); body is base64-encoded JPEG string
@@ -301,6 +301,11 @@ schedule:
 - In `config.yaml`: set `api_mode: cookie`, add `spotify.username` and `spotify.password`
 - Delete `.spotify-token.json` if switching away from OAuth (optional, harmless if left)
 
+## Web Server API Routes
+
+- `GET /api/health` — **Minimal liveness probe**. Returns `{ ok: true }` immediately, no I/O. Used by Docker `HEALTHCHECK`. Never change this to do real work — it must be non-blocking at all times.
+- `GET /api/status` — Full app status (credentials, token, quota state, next refresh). Used by the dashboard UI for polling. Does `fs.readFileSync` internally — do not use as healthcheck target.
+
 ## Spotify API Restrictions (as of March 2026)
 
 - **Dev Mode requires Premium** and limits to **5 authorized users** per Client ID
@@ -317,6 +322,10 @@ schedule:
 
 ## Gotchas
 
+- **`/v1/playlists/{id}/items` response shape changed:** each entry now uses `entry.item` (not `entry.track`) for both tracks and episodes. The old field `entry.track` is `null` for all items in newer API responses. `OAuthSpotifyClient.getPlaylistItems()` reads `entry.item || entry.track || entry.episode` for backward compatibility.
+- **Docker Healthcheck uses `/api/health`**, not `/api/status`. The health route is a guaranteed non-blocking no-op. `/api/status` does file I/O and must never be used as a liveness probe — a busy event loop would cause it to time out and trigger spurious container restarts.
+- **`CookieSpotifyClient.initialize()` accepts `{ daemon: false }`** to suppress the 30-minute background refresh timer. Always pass `{ daemon: false }` for short-lived per-request clients (API route handlers). Only omit it for long-lived clients (e.g. in `index.js`/`runRefresh`). Forgetting this causes timer accumulation which degrades the event loop over time.
+- **Always call `client.stopDaemon()` in a `finally` block** after using a short-lived client in a route handler — even with `{ daemon: false }`, this is a safe no-op and future-proofs against accidental daemon starts.
 - Spotify tokens expire after 1 hour, but the script auto-refreshes them using the refresh token (OAuth) or TOTP re-fetch (Cookie)
 - Refresh tokens can eventually expire after months of inactivity — user must re-run `npm run setup` (OAuth) or re-authenticate via Setup Wizard (Cookie)
 - `setup.js` deletes any existing token before starting OAuth to ensure fresh scopes

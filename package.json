@@ -1,6 +1,6 @@
 {
   "name": "dailydrive",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Recreate Spotify's Daily Drive: auto-mix podcasts and music into one playlist",
   "main": "index.js",
   "scripts": {

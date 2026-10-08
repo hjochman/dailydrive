@@ -6,6 +6,26 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [2.1.2] — Stability fixes: timer leak, playlist fetch, healthcheck, log rotation
+
+### Fixed
+- **Timer accumulation / event loop degradation (Cookie mode)** — every per-request `CookieSpotifyClient` called `initialize()` which called `startDaemon()`, registering a new `setInterval` every 30 minutes. After ~1 hour of use these accumulated timers saturated the event loop, causing the server to become unresponsive. The Healthcheck then failed three times and Docker restarted the container (visible only as "container unexpectedly stopped"). Fix: `initialize()` now accepts `{ daemon: false }` — all short-lived route clients pass this flag. All route handlers also call `client.stopDaemon()` in a `finally` block for explicit cleanup.
+- **`OAuthSpotifyClient.getPlaylistItems()` returned 0 tracks** — Spotify changed the response shape of `/v1/playlists/{id}/items`: the item now lives in `entry.item` (not `entry.track`). The old code read `entry.track` which is now `null` for all entries, so every playlist appeared empty. Fixed to `entry.item || entry.track || entry.episode` for full backward compatibility.
+- **Docker Healthcheck pointed at `/api/status`** — that route does `fs.readFileSync` and `getAppStatus()` I/O; under load it could itself time out and trigger spurious restarts. Healthcheck now targets the new `/api/health` route.
+- **Log files grew indefinitely** — `logLine()` appended to a new file each day but never cleaned up old ones. Added `pruneOldLogs(retainDays=7)` which deletes log files older than 7 days; runs once at server start and daily at midnight via `node-cron`.
+
+### Added
+- **`GET /api/health`** — new minimal liveness endpoint, returns `{ ok: true }` with no I/O. Used exclusively by the Docker `HEALTHCHECK` in `Dockerfile`, `docker-compose.yml`, and `nas-deployment.example.yaml`.
+- **`SpotifyClientBase.stopDaemon()`** — no-op base implementation so `client.stopDaemon()` is safe to call on any client type (OAuth or Cookie) without a type check.
+- **Debug/warn logging in `getPlaylistItems()`** — logs raw item count from API vs. filtered count; emits a `[WARN]` when items arrive but none pass the filter (helps diagnose future Spotify API shape changes).
+
+### Changed
+- **Genre search log level** — `genre:X → N results` promoted from `debug` to `info` so it appears in default log output.
+- `Dockerfile`, `docker-compose.yml`, `nas-deployment.example.yaml` — Healthcheck URL changed from `/api/status` to `/api/health`.
+- `package.json` version bumped to `2.1.2`.
+
+---
+
 ## [2.1.1] — Cookie Mode: Fix played-state detection
 
 ### Fixed

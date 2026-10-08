@@ -61,7 +61,7 @@ EXPOSE 8080
 
 # ── Healthcheck ───────────────────────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -sf http://127.0.0.1:${WEB_PORT}/api/status || exit 1
+  CMD curl -sf http://127.0.0.1:${WEB_PORT}/api/health || exit 1
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 CMD ["node", "server.js"]

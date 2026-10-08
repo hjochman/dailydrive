@@ -74,7 +74,7 @@ services:
 
     # ── Healthcheck ────────────────────────────────────────────────────────
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/status"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3

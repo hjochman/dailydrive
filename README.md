@@ -10,7 +10,9 @@
 
 Spotify [killed Daily Drive](https://community.spotify.com/t5/Music-Discussion/Is-Daily-Drive-gone/td-p/7377710) on March 17, 2026. This project brings it back. It runs on any Linux machine **or inside a container on a Synology NAS**, and automatically refreshes a Spotify playlist with your podcasts interleaved with music.
 
-> **New in v2.1:** Choose your Spotify backend — **OAuth** (full features, requires a free Spotify Developer App) or **Cookie mode** (just your Spotify username and password, no Developer App needed). The Setup Wizard and Config page let you switch at any time. Per-podcast episode modes: `newest`, `newest_unplayed`, and `oldest_unplayed` — skip episodes you've already listened to.
+> **New in v2.1.2:** Stability fixes — timer leak in Cookie mode resolved, playlist fetch fixed for updated Spotify API response shape (`entry.item`), Docker Healthcheck moved to a dedicated non-blocking `/api/health` route, and automatic log rotation (7-day retention).
+
+> **v2.1:** Choose your Spotify backend — **OAuth** (full features, requires a free Spotify Developer App) or **Cookie mode** (just your Spotify username and password, no Developer App needed). The Setup Wizard and Config page let you switch at any time. Per-podcast episode modes: `newest`, `newest_unplayed`, and `oldest_unplayed` — skip episodes you've already listened to.
 
 > **v2.0:** A full Web UI (built with IBM Bob 🤖) guides you through setup, lets you edit all configuration, and runs the playlist on a configurable schedule — no CLI required. Deploy with one `docker compose up`.
 
