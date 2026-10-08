@@ -277,6 +277,13 @@ schedule:
   timezone: string        # IANA timezone
 ```
 
+## AI Assistant Conventions
+
+> These rules apply to **all** AI assistants working on this project.
+
+- **Plan files, temporary files, and test/diagnostic scripts** go in `.bob/` — never in the project root or any other directory. Examples: `.bob/memory-leak-fix-plan.md`, `.bob/tmp/`, `.bob/test-script.js`.
+- The `.bob/` directory is git-ignored and safe for ephemeral work.
+
 ## Common Tasks for AI Assistants
 
 ### "Add multiple playlist targets"

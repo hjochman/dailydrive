@@ -118,6 +118,35 @@ const logDebug = (...a) => _logger.debug(...a);
 const logError = (...a) => _logger.error(...a);
 
 // ---------------------------------------------------------------------------
+// Log rotation — delete log files older than retainDays (default: 7)
+// ---------------------------------------------------------------------------
+
+function pruneOldLogs(retainDays = 7) {
+  try {
+    if (!fs.existsSync(PATHS.LOG_DIR)) return;
+    const cutoff = Date.now() - retainDays * 24 * 60 * 60 * 1000;
+    const deleted = [];
+    for (const file of fs.readdirSync(PATHS.LOG_DIR)) {
+      const m = file.match(/^(\d{4}-\d{2}-\d{2})\.log$/);
+      if (!m) continue;
+      if (new Date(m[1]).getTime() < cutoff) {
+        try {
+          fs.unlinkSync(path.join(PATHS.LOG_DIR, file));
+          deleted.push(file);
+        } catch (err) {
+          logWarn(`pruneOldLogs: could not delete ${file}: ${err.message}`);
+        }
+      }
+    }
+    if (deleted.length > 0) {
+      logInfo(`🗑️  pruneOldLogs: deleted ${deleted.length} old log file(s): ${deleted.join(", ")}`);
+    }
+  } catch (err) {
+    logWarn(`pruneOldLogs: unexpected error: ${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Config I/O
 // ---------------------------------------------------------------------------
 
@@ -425,11 +454,12 @@ app.get("/", async (req, res) => {
 
   // Skip live Spotify fetch while rate-limited — every request would just produce more 429s
   if (status.hasCredentials && status.hasPlaylist && !status.quotaActive) {
+    let dashClient;
     try {
       const creds = resolveSpotifyCredentials(config.spotify);
       const apiMode = config.api_mode || "oauth";
-      const dashClient = createSpotifyClient(apiMode, creds);
-      await dashClient.initialize();
+      dashClient = createSpotifyClient(apiMode, creds);
+      await dashClient.initialize({ daemon: false });
 
       const items = await dashClient.getPlaylistItems(config.playlist_id, { limit: 100, tracksOnly: false });
       for (const item of items) {
@@ -455,6 +485,8 @@ app.get("/", async (req, res) => {
         logError(`[dashboard] Failed to fetch live playlist tracks: ${err.message}`);
       }
       playlistError = err.message;
+    } finally {
+      if (dashClient) dashClient.stopDaemon();
     }
   }
 
@@ -722,11 +754,12 @@ app.post("/setup/playlist", (req, res) => {
 
 // ── POST /api/create-playlist  Create a new empty Daily Drive playlist ────────
 app.post("/api/create-playlist", async (req, res) => {
+  let client;
   try {
     const config = loadConfig();
     const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const client = createClient(config, creds);
-    await client.initialize();
+    client = createClient(config, creds);
+    await client.initialize({ daemon: false });
 
     // Get current user's ID
     const me     = await client.getMe();
@@ -758,6 +791,8 @@ app.post("/api/create-playlist", async (req, res) => {
   } catch (err) {
     logError("create-playlist failed: " + err.message);
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
@@ -1130,38 +1165,45 @@ app.get("/about", (req, res) => {
 
 // ── GET /api/user-playlists  Get current user's playlists ─────────────────────
 app.get("/api/user-playlists", async (req, res) => {
+  let client;
   try {
     const config  = loadConfig();
     const apiMode = req.query.mode || config.api_mode || "oauth";
     const creds   = resolveSpotifyCredentials(config.spotify || {});
-    const client  = createSpotifyClient(apiMode, creds);
-    await client.initialize();
+    client  = createSpotifyClient(apiMode, creds);
+    await client.initialize({ daemon: false });
 
     const playlists = await client.getUserPlaylists({ limit: 50 });
     res.json(playlists);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
 // ── GET /api/user-podcasts  Get current user's followed shows ──────────────────
 app.get("/api/user-podcasts", async (req, res) => {
+  let client;
   try {
     const config  = loadConfig();
     const apiMode = req.query.mode || config.api_mode || "oauth";
     const creds   = resolveSpotifyCredentials(config.spotify || {});
-    const client  = createSpotifyClient(apiMode, creds);
-    await client.initialize();
+    client  = createSpotifyClient(apiMode, creds);
+    await client.initialize({ daemon: false });
 
     const shows = await client.getMySavedShows({ limit: 50 });
     res.json(shows);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
 // ── GET /api/search  Search Spotify for playlists or shows ─────────────────────
 app.get("/api/search", async (req, res) => {
+  let client;
   try {
     const { q, type } = req.query; // type can be "playlist" or "show"
     if (!q) {
@@ -1171,8 +1213,8 @@ app.get("/api/search", async (req, res) => {
     const config  = loadConfig();
     const apiMode = req.query.mode || config.api_mode || "oauth";
     const creds   = resolveSpotifyCredentials(config.spotify || {});
-    const client  = createSpotifyClient(apiMode, creds);
-    await client.initialize();
+    client  = createSpotifyClient(apiMode, creds);
+    await client.initialize({ daemon: false });
 
     let results = [];
     if (type === "show") {
@@ -1184,16 +1226,19 @@ app.get("/api/search", async (req, res) => {
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
 // ── GET /api/taste-prompt  Build LLM prompt from user's Spotify taste data ────
 app.get("/api/taste-prompt", async (req, res) => {
+  let client;
   try {
     const config = loadConfig();
     const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const client = createClient(config, creds);
-    await client.initialize();
+    client = createClient(config, creds);
+    await client.initialize({ daemon: false });
 
     const artistCounts = {};
     const trackSamples = [];
@@ -1262,21 +1307,26 @@ dance pop`;
     res.json({ prompt, artistCount: topArtists.length, trackCount: uniqueTracks.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
 // ── GET /api/playlist-info/:id  Name + image for a single playlist ────────────
 app.get("/api/playlist-info/:id", async (req, res) => {
+  let client;
   try {
     const config = loadConfig();
     const creds  = resolveSpotifyCredentials(config.spotify || {});
-    const client = createClient(config, creds);
-    await client.initialize();
+    client = createClient(config, creds);
+    await client.initialize({ daemon: false });
 
     const info = await client.getPlaylistInfo(req.params.id);
     res.json(info);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  } finally {
+    if (client) client.stopDaemon();
   }
 });
 
@@ -1379,6 +1429,10 @@ app.listen(WEB_PORT, "0.0.0.0", () => {
     const _daemonClient = new OAuthSpotifyClient(_daemonCreds);
     _daemonClient.startDaemon(30 * 60 * 1000);
   }
+
+  // Prune old log files on startup, then daily at midnight
+  pruneOldLogs();
+  cron.schedule("0 0 * * *", pruneOldLogs);
 
   // Start the playlist refresh scheduler
   startScheduler();

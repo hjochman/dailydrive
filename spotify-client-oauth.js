@@ -275,9 +275,13 @@ class OAuthSpotifyClient extends SpotifyClientBase {
       throw new Error(`getPlaylistItems HTTP ${res.status}: ${await res.text()}`);
     }
     const data = await res.json();
+    const rawItems = data.items || [];
+    _log.debug(`[oauth] getPlaylistItems: API returned ${rawItems.length} raw items (total: ${data.total ?? "?"})`);
     const results = [];
-    for (const entry of data.items) {
-      const item = entry.track; // field is "track" for both tracks and episodes in v1 API
+    for (const entry of rawItems) {
+      // The /items endpoint returns the item in entry.item (tracks and episodes alike).
+      // Older API versions used entry.track — fall back to that for compatibility.
+      const item = entry.item || entry.track || entry.episode;
       if (!item || !item.uri) continue;
       if (item.type === "episode") {
         if (!tracksOnly) {
@@ -296,6 +300,9 @@ class OAuthSpotifyClient extends SpotifyClientBase {
           type:   "track",
         });
       }
+    }
+    if (rawItems.length > 0 && results.length === 0) {
+      _log.warn(`[oauth] getPlaylistItems: ${rawItems.length} raw items fetched but 0 passed the filter — playlist may contain local files, unavailable tracks, or episodes (tracksOnly=${tracksOnly})`);
     }
     return results;
   }

@@ -258,23 +258,29 @@ class CookieSpotifyClient extends SpotifyClientBase {
    * Initialises the client by loading a valid cached session or performing
    * the full TOTP-based handshake against Spotify Web Player.
    *
+   * @param {object} [opts]
+   * @param {boolean} [opts.daemon=true] - Set to false for short-lived clients (e.g. per-request
+   *   API handlers) to prevent registering a background refresh interval that would keep the
+   *   instance alive and accumulate timers over time.
    * @returns {Promise<void>}
    */
-  async initialize() {
+  async initialize(opts = {}) {
+    const startDaemonAfter = opts.daemon !== false;
+
     // 1. Try loading valid cached session from disk
     if (this._loadSession()) {
       // Essential query hashes — if any are missing, rebuild session to fetch sub-chunks
       const essential = ["userTopContent", "searchTracks", "fetchPlaylistContents", "queryPodcastEpisodes", "libraryV3", "fetchPlaylistMetadata", "fetchLibraryTracks"];
       const hasAllHashes = essential.every((op) => !!this._queryHashes[op]);
       if (this._expiresAtMs && this._expiresAtMs > Date.now() + 5 * 60 * 1000 && hasAllHashes) {
-        this.startDaemon();
+        if (startDaemonAfter) this.startDaemon();
         return;
       }
     }
 
     // 2. Refresh or build fresh session
     await this._buildFreshSession();
-    this.startDaemon();
+    if (startDaemonAfter) this.startDaemon();
   }
 
   /**

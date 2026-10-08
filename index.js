@@ -381,7 +381,7 @@ async function fetchGenreTracks(client, genres, count, maxPerGenre = 10) {
         market: "US",
       });
       tracks.push(...items);
-      _log.debug(`    genre:${genre} → ${items.length} results`);
+      _log.info(`    genre:${genre} → ${items.length} results`);
       if (items.length === 0) {
         _log.warn(`No tracks found for genre "${genre}" — check spelling or try a broader term`);
       }

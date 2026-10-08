@@ -72,6 +72,12 @@ class SpotifyClientBase {
   }
 
   /**
+   * Stops any background refresh daemon. No-op by default; override in subclasses that start
+   * a daemon (e.g. CookieSpotifyClient). Safe to call on all client types.
+   */
+  stopDaemon() {}
+
+  /**
    * Fetches the latest episodes for a podcast show.
    *
    * @abstract
